@@ -1,15 +1,92 @@
-## Moon: a peer-to-peer operating system
+## Moon: a Peer-to-Peer Operating System
 
-A purely peer-to-peer implementation of an operating system should allow complete applications to freely operate without going through a centralized institution. Ethereum partly solved that problem in 2014, but early design choices lead to a series of difficulties that affected its scalability, security and usability. As such, no such a thing was built on top of it, yet. The purpose of this document isn't to present a new technological breakthrough, but to merely provide an alternative design for a decentralized computer, using stabilished technologies in order to address some of Ethereum's flaws and, as such, construct a peer-to-peer operating system that is simple, fast, secure and ready for widespread adoption. 
+**Abstract.** A purely peer-to-peer implementation of an operating system should allow online applications to operate perpetually with no downtime. Ethereum partly solved that problem in 2014, but is limited to smart-contracts. Building upon its ideas, we present the design of a complete decentralized operating system. Our low-level machine language, Nasic, is inherently parallel and adequate for reducing high-order programs efficiently, in contrast to register and stack machines. Our high-level language, Formality, is capable of exploiting Curry-Howard's isomorphism to verify security claims offline, allowing users to trust downloaded code without trusting its developers. An inductive datatype, DappSpec, is used to specify front-end user interfaces. A proof-of-work, tokenless blockchain, Bitlog, is used to aggregate and order global transactions, allowing applications to have a common back-end state. Our design is complete and final, in the sense no further updates will ever be needed, making this a self-contained, timeless specification of the operating system. To facilitate independent implementations, each module is accompanied by commented Python code.
 
-Instead of a sequential, stack-based virtual machine with numerous primitive opcodes and a complex state-management machinery that requires everyone to process everyone else's transactions, we use a new model of computation, interaction combinators, with only two reduction rules, coupled with optimal reducers, which allow users to process selected subsets of the global state lazily and in parallel, with the minimal amount of work necessary. Instead of low-level, bug-prone languages for smart-contracts, we use a powerful, high-level language capable of deriving mathematical models of its own programs, and proving arbitrary invariants about their executions. Instead of needing separate languages and browsers for user-facing interfaces, everything is presented together as a single, well-integrated package, Moon, which is capable of rendering rich graphical interfaces using the same language used for contracts.
+## 1. Nasic: a parallel, low-level machine language
 
-Despite sounding complex, the resulting system is intended to be 1. astonishingly simple, in the sense a regular developer following this document should be able to implement all of it in a month of work, and 2. complete, in the sense it includes everything that is required to build a worldwide computer, with extensions coming from uploaded code, not protocol updates, which should never be needed. This also addresses the common problem of core developers having too much influence, by simply not having core developers at all. Compatibility with Ethereum is maintained through a multiway bridge, which is possible due to Turing completeness on both sides. In other words, Moon shouldn't be seen as a separate, competing network, but as part of the whole.
+A very simple graph-rewrite system with only 3 symbols and 6 rules has been shown to be a universal model of computation [1]. This system is particularly interesting for its perfect computational properties. Like a Turing machine, it is simple, powerful, and can be evaluated as a series of atomic, local operations. Like the λ-calculus, it is inherently high-order and has a nice logical interpretation. While, from the viewpoint of computability, the 3 systems are equivalent (Turing complete), from the viewpoint of computation, interaction combinators is arguably superior, for being confluent and inherently parallel. In other words, while the Turing machine and other classical models of computation can always be simulated by interaction combinators without loss of efficiency, the converse isn't true. That makes it perfectly architecture agnostic and future-proof. For that reason, Moon's low-level machine language is a slight adaptation that can be described as n-ary symmetric interaction combinators, or Nasic.
 
-### History
+### Specification
 
-In 2009, Satoshi Nakamoto released the first decentralized application: Bitcoin, an electronic cash that operated in a purely peer-to-peer fashion, with no single party holding any exclusive power or higher authority over the execution of the system. Bitcoin was designed to eternally operate following the rules initially specified by its code, being thus forever immune to any attempt of corruption, censure or sabotage. Almost 10 years later, that goal has been marvelously successful: not a single bitcoin has ever been created outside the planned schedule, not a single user-balance has been alterated in unexpected manners, not a single entity has obtained power to disturb the system's planned functioning, despite numerous attempts and enormous interest; a fact that can be easily verified by any of its users. Bitcoin is, to all intents and purposes, a global application that perpetually operates following its own rules, independent of any human decision. 
+Differently from conventional machine languages, which are usually described as bytecode, Nasic programs are described as graphs of a specific format. It includes exactly two types of nodes: Erasure nodes, which always have 1 outgoing edge, and Construction nodes, which always have 3 outgoing edges, plus a symbolic label. Below, Nasic's two node types are depicted in a visual notation:
 
-The same properties that made Bitcoin so resilient, though, also made it very inflexible. Using Bitcoin to do anything other than what was originially defined, i.e., sending and receiving digital coins, is hard. As impactiful as Bitcoin was as a digital currency and a store of value, it is, in the end, just a global map of user balances, and, as such, very limited. Such inflexibility lead to the increasing development of alternate currencies covering features that Bitcoin didn't. Namecoin, for example, was a fork of Bitcoin which allowed users to register domains; Monero was a fork with private transactions. Eventually, dozens of similar applications were created, and, while all of those were decentralized themselves, they couldn't interact with each other to construct a fully integrated decentralized economy. As an example, a decade later you can't trade Bitcoin for Monero without going through a centralized thirdy party exchange. In fact, most services around Bitcoin are still centralized. This demonstrates it takes more than a decentralized currecy to build a decentralized economy: what we need is a decentralized computer.
+(image)
 
-Under that understanding, Vitalik Buterin, in 2013, proposed Ethereum, a distributed computing platform featuring user-defined scripting capabilities. The key insight is that, by including, as part of the system, a virtual machine capable of performing arbitrary computations, users are able to extend it with unpredictably new functionalities. Name registars such as Namecoin, for example, could be added to the system a posteriori, and they were: [ENS](https://ens.domains/) (Ethereum Name System) being the most successful implementation. Private transactions such as Monero's could be realized with posterior incorporation of technologies such as zero-knowledge proofs. Countless other features such as games with fully-autonomous virtual economies, prediction markets and even governments could be designed to live inside Ethereum and, as such, (...)
+Any connected arrangement of those nodes forms a valid Nasic program. For example, those are valid Nasic programs:
+
+(image)
+
+Notice that the position of edges is important. For example, those graphs, while isomorphic, denote two different programs:
+
+(image)
+
+For that reason, the slots from which edges come are named. The port at the top of the triangle is the `main` port. The one nearest to it in counter-clockwise direction is the `aux1` port. The other one is the `aux2` port.
+
+(image)
+
+Moreover, there are 3 computation rules:
+
+(image)
+
+Those rewrite rules dictate that, whenever a sub-graph matches the left side of a rule, it must be replaced by its right side. For example, the graph below:
+
+(image)
+
+Is rewritten as:
+
+(image)
+
+Because (...). Rewritteable nodes are called redexes, or active pairs. 
+
+This completes Nasic's specification. At this point, you might be questioning if such a simple graphical system can really replace Assembly and describe arbitrary programs that range from simple calculators to entire online games and social networks. While this may not be obvious or intuitive at first, rest assured the answer is yes, as will become clear through the paper. For now, we'll shift our focus to just implementing such system, as described. 
+
+### Implementation
+
+Nasic's evaluation rules are well-defined, but its concrete implementation is up to the client developer. While our implementations has demonstrated satisfactory performance characteristics, which will be exposed later on, we believe that there is still a lot of room to explore. For example, Nasic's simplicity makes it adequate for massively parallel architectures such as the GPU, which we did not explore yet. Moreover, we hypothetize that, with proper miniaturization such as FPGAs and ASICs, Nasic processors could compete with, if not surpass, modern computer architectures in raw performance. For now, we'll build a reference Python implementation, for pedagogical purposes.
+
+## 2. Formality: a high-level language for programs and proofs
+
+types as a language of specifications
+
+programs as mathematical proofs
+
+### Description
+
+### Implementation
+
+## 3. DappSpec: a specification format for decentralized applications
+
+```haskell
+data Uint : Type
+| O : (x : Uint) -> Uint
+| I : (x : Uint) -> Uint
+| Z : Uint
+
+data List<A : Type> : Type
+| cons : (x : A, xs : List) -> List
+| nil  : List
+
+data Element : Type
+| circle : (x : Uint, y : Uint, r : Uint) -> Element
+| square : (x : Uint, y : Uint, r : Uint) -> Element
+
+let Document List<Element>
+
+data LocalEvent : Type
+| MouseClick : (x : Uint, y : Uint) -> LocalEvent
+| Keypress   : (k : Uint)           -> LocalEvent
+
+data App : Type
+| new : 
+  ( LocalState     : Type
+  , local_inistate : LocalState
+  , local_transact : (event : LocalEvent, state : LocalState) -> LocalState
+  , render         : (state : LocalState) -> Document)
+  -> App
+```
+
+## 4. Bitlog: a token-less blockchain for global transactions
+
+## References
+
+[1] https://pdfs.semanticscholar.org/6cfe/09aa6e5da6ce98077b7a048cb1badd78cc76.pdf
