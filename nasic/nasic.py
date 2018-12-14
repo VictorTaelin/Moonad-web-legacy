@@ -1,82 +1,66 @@
 class Pointer:
-    # A Pointer consists of an addr / port pair
     def __init__(self, addr, port):
-        self.addr = addr # integer (index on self.nodes where the target port is)
-        self.port = port # integer (0, 1 or 2, representing the target port)
+        self.addr = addr # integer
+        self.port = port # integer (0, 1 or 2)
 
     def __str__(self):
         return str(self.addr) + "abc"[self.port]
 
     def __eq__(self, other):
-        return other is not None and self.addr == other.addr and self.port == other.port
+        return other is not None and self.addr == other.addr and self.port == otherport.
 
 class Node:
-    # A node consists of a label and an array with 3 ports
     def __init__(self, label, ports):
-        self.label = label # integer (this node's label)
-        self.ports = ports # array with 3 pointers (this node's edges)
+        self.label = label # integer
+        self.ports = ports # pointers
 
     def __str__(self):
         return "[" + str(self.label) + "| " + str(self.ports[0]) + " " + str(self.ports[1]) + " " + str(self.ports[2]) + "]"
 
 class Net:
-    # A net stores nodes (self.nodes), reclaimable memory addrs (self.freed) and active pairs (self.redex)
     def __init__(self):
         self.nodes = [] # nodes
         self.freed = [] # integers
-        self.redex = [] # array of (pointer, pointer) tuples
+        self.redex = [] # pointers
 
-    # Allocates a new node, return its addr
+    def __str__(self):
+        text = ""
+        for i in xrange(len(self.nodes)):
+            text += str(i) + ": " + str(self.nodes[i]) + "\n"
+        return text
+
     def alloc_node(self, label):
-
-        # If there is reclaimable memory, use it
         if len(self.freed) > 0:
             addr = self.freed.pop()
-
-        # Otherwise, extend the array of nodes
         else:
             self.nodes.append(None)
             addr = len(self.nodes) - 1
-
-        # Fill the memory with an empty node without pointers
         self.nodes[addr] = Node(label, [None, None, None])
         return addr
 
-    # Deallocates a node, allowing its space to be reclaimed
     def free_node(self, addr):
         self.nodes[addr] = None
         self.freed.append(addr)
 
-    # Given a pointer to a port, returns a pointer to the opposing port
+    def link_ports(self, a_ptr, b_ptr):
+        if self.enter_port(a_ptr) == a_ptr or self.enter_port(b_ptr) == b_ptr:
+            self.nodes[a_ptr.addr].ports[a_ptr.port] = Pointer(a_ptr.addr, a_ptr.port)
+            self.nodes[b_ptr.addr].ports[b_ptr.port] = Pointer(b_ptr.addr, b_ptr.port)
+        else:
+            self.nodes[a_ptr.addr].ports[a_ptr.port] = b_ptr
+            self.nodes[b_ptr.addr].ports[b_ptr.port] = a_ptr
+        if a_ptr.port == 0 and b_ptr.port == 0:
+            self.redex.append((a_ptr.addr, b_ptr.addr))
+
     def enter_port(self, ptr):
         if self.nodes[ptr.addr] is not None:
             return self.nodes[ptr.addr].ports[ptr.port]
         else:
             return None
 
-    # Connects two ports
-    def link_ports(self, a_ptr, b_ptr):
-
-        # If one of the ports connects to itself, then connect the other to itself too
-        if self.enter_port(a_ptr) == a_ptr or self.enter_port(b_ptr) == b_ptr:
-            self.nodes[a_ptr.addr].ports[a_ptr.port] = Pointer(a_ptr.addr, a_ptr.port)
-            self.nodes[b_ptr.addr].ports[b_ptr.port] = Pointer(b_ptr.addr, b_ptr.port)
-
-        # Otherwise, connect both ports to each-other
-        else:
-            self.nodes[a_ptr.addr].ports[a_ptr.port] = b_ptr
-            self.nodes[b_ptr.addr].ports[b_ptr.port] = a_ptr
-
-        # If both are main ports, add this to the list of active pairs
-        if a_ptr.port == 0 and b_ptr.port == 0:
-            self.redex.append((a_ptr.addr, b_ptr.addr))
-
-    # Rewrites an active pair
     def rewrite(self, (a_addr, b_addr)):
         a_node = self.nodes[a_addr]
         b_node = self.nodes[b_addr]
-
-        # If both nodes have the same label, connects their neighbors
         if a_node.label == b_node.label:
             a_aux1_dest = self.enter_port(Pointer(a_addr, 1))
             b_aux1_dest = self.enter_port(Pointer(b_addr, 1))
@@ -84,9 +68,8 @@ class Net:
             a_aux2_dest = self.enter_port(Pointer(a_addr, 2))
             b_aux2_dest = self.enter_port(Pointer(b_addr, 2))
             self.link_ports(a_aux2_dest, b_aux2_dest)
-
-        # Otherwise, the nodes pass through each-other, duplicating themselves
         else:
+            a_aux1_dest = self.enter_port(Pointer(a_addr, 1))
             p_addr = self.alloc_node(b_node.label)
             q_addr = self.alloc_node(b_node.label)
             r_addr = self.alloc_node(a_node.label)
@@ -99,40 +82,12 @@ class Net:
             self.link_ports(Pointer(q_addr, 0), self.enter_port(Pointer(a_addr, 2)))
             self.link_ports(Pointer(r_addr, 0), self.enter_port(Pointer(b_addr, 1)))
             self.link_ports(Pointer(s_addr, 0), self.enter_port(Pointer(b_addr, 2)))
-
-        # Deallocates the space used by the active pair
         self.free_node(a_addr)
         self.free_node(b_addr)
 
-    # Rewrites active pairs until none is left, reducing the graph to normal form
     def reduce(self):
         rewrite_count = 0
         while len(self.redex) > 0:
             self.rewrite(self.redex.pop())
             rewrite_count += 1
         return rewrite_count
-
-    def __str__(self):
-        text = ""
-        for i in xrange(len(self.nodes)):
-            text += str(i) + ": " + str(self.nodes[i]) + "\n"
-        return text
-
-# Runs the paper example
-def run_example():
-    net = Net()
-    net.alloc_node(1)
-    net.alloc_node(2)
-    net.alloc_node(1)
-    net.alloc_node(1)
-    net.link_ports(Pointer(0,0), Pointer(0,2))
-    net.link_ports(Pointer(0,1), Pointer(3,2))
-    net.link_ports(Pointer(1,0), Pointer(2,0))
-    net.link_ports(Pointer(1,1), Pointer(3,0))
-    net.link_ports(Pointer(1,2), Pointer(3,1))
-    net.link_ports(Pointer(2,1), Pointer(2,2))
-    print "Input:"
-    print net
-    net.reduce()
-    print "Output:"
-    print net
