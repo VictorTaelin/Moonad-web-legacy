@@ -56,20 +56,20 @@ class Net:
 
     # Connects two ports
     def link_ports(self, a_ptr, b_ptr):
-
-        # If one of the ports connects to itself, then connect the other to itself too
-        if self.enter_port(a_ptr) == a_ptr or self.enter_port(b_ptr) == b_ptr:
-            self.nodes[a_ptr.addr].ports[a_ptr.port] = Pointer(a_ptr.addr, a_ptr.port)
-            self.nodes[b_ptr.addr].ports[b_ptr.port] = Pointer(b_ptr.addr, b_ptr.port)
-
-        # Otherwise, connect both ports to each-other
-        else:
-            self.nodes[a_ptr.addr].ports[a_ptr.port] = b_ptr
-            self.nodes[b_ptr.addr].ports[b_ptr.port] = a_ptr
+        # Stores each pointer on its opposing port
+        self.nodes[a_ptr.addr].ports[a_ptr.port] = b_ptr
+        self.nodes[b_ptr.addr].ports[b_ptr.port] = a_ptr
 
         # If both are main ports, add this to the list of active pairs
         if a_ptr.port == 0 and b_ptr.port == 0:
             self.redex.append((a_ptr.addr, b_ptr.addr))
+
+    # Disconnects a port, causing both sides to point to themselves
+    def unlink_port(self, a_ptr):
+        b_ptr = self.enter_port(a_ptr)
+        if self.enter_port(b_ptr) == a_ptr:
+            self.nodes[a_ptr.addr].ports[a_ptr.port] = a_ptr
+            self.nodes[b_ptr.addr].ports[b_ptr.port] = b_ptr
 
     # Rewrites an active pair
     def rewrite(self, (a_addr, b_addr)):
@@ -101,6 +101,9 @@ class Net:
             self.link_ports(Pointer(s_addr, 0), self.enter_port(Pointer(b_addr, 2)))
 
         # Deallocates the space used by the active pair
+        for p in xrange(3):
+            self.unlink_port(Pointer(a_addr, p))
+            self.unlink_port(Pointer(b_addr, p))
         self.free_node(a_addr)
         self.free_node(b_addr)
 
@@ -133,6 +136,7 @@ def run_example():
     net.link_ports(Pointer(2,1), Pointer(2,2))
     print "Input:"
     print net
-    net.reduce()
+    rewrites = net.reduce()
     print "Output:"
     print net
+    print "Rewrites: " + str(rewrites)

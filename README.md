@@ -7,7 +7,7 @@ readback of pattern-matching is detected when a solid type is applied to somethi
 
 ## Moon: a Peer-to-Peer Operating System
 
-**Abstract.** A purely peer-to-peer implementation of an operating system should allow online applications to operate perpetually with no downtime. Ethereum partly solved that problem in 2014, but is limited to smart-contracts. Building upon its ideas, we present the design of a complete decentralized operating system. Our low-level machine language, Nasic, is inherently parallel and adequate for reducing high-order programs efficiently, in contrast to register and stack machines. Our high-level language, Formality, is capable of exploiting Curry-Howard's isomorphism to verify security claims offline, allowing users to trust downloaded code without trusting its developers. An inductive datatype, DappSpec, is used to specify front-end user interfaces. A proof-of-work, tokenless blockchain, Bitlog, is used to aggregate and order global transactions, allowing applications to have a common back-end state. Our design is complete and final, in the sense no further updates will ever be needed, making this a self-contained, timeless specification of the operating system. To facilitate independent implementations, each module is accompanied by commented Python code.
+**Abstract.** A purely peer-to-peer implementation of an operating system should allow online applications to operate perpetually with no downtime. Ethereum partly solved that problem in 2014, but its focus on smart-contracts posed challenges for everyday adoption. Building upon its ideas, we present the design of a complete decentralized operating system. Our low-level machine language, Nasic, is inherently parallel and adequate for reducing high-order programs efficiently, in contrast to register and stack machines. Our high-level language, Formality, is capable of exploiting Curry-Howard's isomorphism to verify security claims offline, allowing users to trust downloaded code without trusting its developers. An inductive datatype, DappSpec, is used to specify front-end user interfaces. A proof-of-work, tokenless blockchain, Bitlog, is used to aggregate and order global transactions, allowing applications to have a common back-end state. Our design is complete and final, making this a self-contained, timeless specification of the operating system. To facilitate independent implementations, each module is accompanied by commented Python code.
 
 ## 1. Nasic: a parallel, low-level machine language
 
@@ -129,7 +129,7 @@ net.alloc_node(1)
 net.alloc_node(1)
 ```
 
-Now, we must wire those nodes. For that, we extend `Net` with two other functions:
+Now, we must wire those nodes. For that, we extend `Net` with 3 other functions:
 
 ```python
     # Given a pointer to a port, returns a pointer to the opposing port
@@ -141,23 +141,23 @@ Now, we must wire those nodes. For that, we extend `Net` with two other function
 
     # Connects two ports
     def link_ports(self, a_ptr, b_ptr):
-
-        # If one of the ports connects to itself, then connect the other to itself too
-        if self.enter_port(a_ptr) == a_ptr or self.enter_port(b_ptr) == b_ptr:
-            self.nodes[a_ptr.addr].ports[a_ptr.port] = Pointer(a_ptr.addr, a_ptr.port)
-            self.nodes[b_ptr.addr].ports[b_ptr.port] = Pointer(b_ptr.addr, b_ptr.port)
-
-        # Otherwise, connect both ports to each-other
-        else:
-            self.nodes[a_ptr.addr].ports[a_ptr.port] = b_ptr
-            self.nodes[b_ptr.addr].ports[b_ptr.port] = a_ptr
+        # Stores each pointer on its opposing port
+        self.nodes[a_ptr.addr].ports[a_ptr.port] = b_ptr
+        self.nodes[b_ptr.addr].ports[b_ptr.port] = a_ptr
 
         # If both are main ports, add this to the list of active pairs
         if a_ptr.port == 0 and b_ptr.port == 0:
             self.redex.append((a_ptr.addr, b_ptr.addr))
+
+    # Disconnects a port, causing both sides to point to themselves
+    def unlink_port(self, a_ptr):
+        b_ptr = self.enter_port(a_ptr)
+        if self.enter_port(b_ptr) == a_ptr:
+            self.nodes[a_ptr.addr].ports[a_ptr.port] = a_ptr
+            self.nodes[b_ptr.addr].ports[b_ptr.port] = b_ptr
 ```
 
-The `enter_port` function receives a pointer and returns a pointer to the opposing port. The `link_ports` function receives two pointers and connects their ports. Doing that is simple: we just need to store the first pointer on the second port, and the second pointer on the first port. There is a problem with this approach, though: if a port is connected to itself, this could leave the graph in an illegal state where a port points to another port that doesn't point back to it. To avoid that, we explicitly detect such case, performing the correct wiring. Now we're able to complete the graph above as follows:
+The `enter_port` function receives a pointer and returns a pointer to the opposing port. The `link_ports` function receives two pointers and connects their ports. It also keeps track of active pairs, in case a new one is formed. The `unlink_port` function undoes a connection. Now we're able to complete the graph above as follows:
 
 ```python
 net.link_ports(Pointer(0,0), Pointer(0,2))
@@ -177,7 +177,7 @@ Now our graph is fully constructed. To complete our implementation, we just exte
         a_node = self.nodes[a_addr]
         b_node = self.nodes[b_addr]
 
-        # If both nodes have the same label, connects their neighbors (annihilation)
+        # If both nodes have the same label, connects their neighbors
         if a_node.label == b_node.label:
             a_aux1_dest = self.enter_port(Pointer(a_addr, 1))
             b_aux1_dest = self.enter_port(Pointer(b_addr, 1))
@@ -186,7 +186,7 @@ Now our graph is fully constructed. To complete our implementation, we just exte
             b_aux2_dest = self.enter_port(Pointer(b_addr, 2))
             self.link_ports(a_aux2_dest, b_aux2_dest)
 
-        # Otherwise, the nodes pass through each-other, duplicating themselves (commutation)
+        # Otherwise, the nodes pass through each-other, duplicating themselves
         else:
             p_addr = self.alloc_node(b_node.label)
             q_addr = self.alloc_node(b_node.label)
@@ -202,6 +202,9 @@ Now our graph is fully constructed. To complete our implementation, we just exte
             self.link_ports(Pointer(s_addr, 0), self.enter_port(Pointer(b_addr, 2)))
 
         # Deallocates the space used by the active pair
+        for p in xrange(3):
+            self.unlink_port(Pointer(a_addr, p))
+            self.unlink_port(Pointer(b_addr, p))
         self.free_node(a_addr)
         self.free_node(b_addr)
 
@@ -214,7 +217,7 @@ Now our graph is fully constructed. To complete our implementation, we just exte
         return rewrite_count
 ```
 
-The first function, `rewrite`, receives an active pair and rewrites it, using the rules we presented previously. The second function, `reduce`, merely applies `rewrite` over and over to active pairs until there is no more work to be done, returning the computational cost of evaluating this program (net). Together, they form the heart of our algorithm, encapsulating the fundamental rules of computation, annihilation and commutation. The first rule allows separate pieces of information to interact, capturing different phenomena such as functions, datatypes and pattern-matching. The second rule allows sub-graphs to be duplicated at will, capturing phenomena such as loops and recursion. Parallelism, while absent from this implementation, is captured by the fact redexes could be rewritten simultaneously. Memory allocation and garbage-collection are captured by the fact nodes are incrementally freed when subgraphs "go out of scope". We're now able to evaluate our input program (net) as follows:
+The first function, `rewrite`, receives an active pair and rewrites it, using the rules we presented previously. The second function, `reduce`, merely applies `rewrite` over and over to active pairs until there is no more work to be done, returning the computational cost of evaluating this program (net). Together, they form the core of our algorithm, encapsulating the fundamental rules of computation, annihilation and commutation. The first rule allows separate pieces of information to interact, capturing different phenomena such as functions, datatypes and pattern-matching. The second rule allows sub-graphs to be duplicated at will, capturing phenomena such as loops and recursion. Parallelism, while absent from this implementation, is captured by the fact redexes could be rewritten simultaneously. Memory allocation and garbage-collection are captured by the fact nodes are incrementally freed when subgraphs "go out of scope". We're now able to evaluate our input program (net) as follows:
 
 ```
 net.reduce()
@@ -225,6 +228,10 @@ As a result, our `net` will now contain the following graph:
 (image)
 
 Which is the normal form of the input. This completes the reference implementation of Moon's low-level machine language, Nasic. An executable example is available at [`nasic.py`](nasic.py).
+
+```TODO
+note about the differences between interaction combinators and Nasic (symmetry, labels, no Erase/Root nodes needed)
+```
 
 ### Performance considerations
 
