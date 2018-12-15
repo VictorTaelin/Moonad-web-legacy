@@ -49,6 +49,7 @@ This completes Nasic's specification. At this point, you might be questioning if
 
 ### Implementation
 
+
 In our implementation, we will represent a Net as a table, where each row represents a Node, with its label, and 3 ports, each one including a Pointer to another port. As an example, consider the following net:
 
 (image)
@@ -62,176 +63,24 @@ addr | label | port 0 | port 1 | port 2
 2 | 1 | addr X, port X | addr X, port X | addr X, port X
 3 | 0 | addr X, port X | addr X, port X | addr X, port X
 
-Here, we already identify all the 3 classes used by our implementation: `Pointer`, `Node` and `Net`:
-
-```python
-class Pointer:
-    # A Pointer consists of an addr / port pair
-    def __init__(self, addr, port):
-        self.addr = addr # integer (index on self.nodes where the target port is)
-        self.port = port # integer (0, 1 or 2, representing the target port)
-
-class Node:
-    # A node consists of a label and an array with 3 ports
-    def __init__(self, label, ports):
-        self.label = label # integer (this node's label)
-        self.ports = ports # array with 3 pointers (this node's edges)
-
-class Net:
-    # A net stores nodes (self.nodes), reclaimable memory addrs (self.freed) and active pairs (self.redex)
-    def __init__(self):
-        self.nodes = [] # nodes
-        self.freed = [] # integers
-        self.redex = [] # array of (pointer, pointer) tuples
-```
-
-In addition to the table of nodes, the `Net` class also includes two additional arrays, `freed`, which will keep track of reclaimable memory, and `redex`, which will keep track of active pairs. We can, now, create an empty Net as follows:
-
-```python
-net = Net()
-```
-
-In order to add nodes to it, we need an allocation function. For that, we can extend the `Net` class with a new method:
-
-```python
-    # Allocates a new node, return its addr
-    def alloc_node(self, label):
-
-        # If there is reclaimable memory, use it
-        if len(self.freed) > 0:
-            addr = self.freed.pop()
-
-        # Otherwise, extend the array of nodes
-        else:
-            self.nodes.append(None)
-            addr = len(self.nodes) - 1
-
-        # Fill the memory with an empty node without pointers
-        self.nodes[addr] = Node(label, [None, None, None])
-        return addr
-```
-
-That function allocates space for a new node, reusing freed memory if possible, and returning the allocated addr. We can also implement a deallocation function, which erases a node and marks its memory as free:
-
-```python
-    # Deallocates a node, allowing its space to be reclaimed
-    def free_node(self, addr):
-        self.nodes[addr] = None
-        self.freed.append(addr)
-```
-
-We are now able to create the 4 nodes of our graph:
-
-```python
-net.alloc_node(1)
-net.alloc_node(2)
-net.alloc_node(1)
-net.alloc_node(1)
-```
-
-Now, we must wire those nodes. For that, we extend `Net` with 3 other functions:
-
-```python
-    # Given a pointer to a port, returns a pointer to the opposing port
-    def enter_port(self, ptr):
-        if self.nodes[ptr.addr] is not None:
-            return self.nodes[ptr.addr].ports[ptr.port]
-        else:
-            return None
-
-    # Connects two ports
-    def link_ports(self, a_ptr, b_ptr):
-        # Stores each pointer on its opposing port
-        self.nodes[a_ptr.addr].ports[a_ptr.port] = b_ptr
-        self.nodes[b_ptr.addr].ports[b_ptr.port] = a_ptr
-
-        # If both are main ports, add this to the list of active pairs
-        if a_ptr.port == 0 and b_ptr.port == 0:
-            self.redex.append((a_ptr.addr, b_ptr.addr))
-
-    # Disconnects a port, causing both sides to point to themselves
-    def unlink_port(self, a_ptr):
-        b_ptr = self.enter_port(a_ptr)
-        if self.enter_port(b_ptr) == a_ptr:
-            self.nodes[a_ptr.addr].ports[a_ptr.port] = a_ptr
-            self.nodes[b_ptr.addr].ports[b_ptr.port] = b_ptr
-```
-
-The `enter_port` function receives a pointer and returns a pointer to the opposing port. The `link_ports` function receives two pointers and connects their ports. It also keeps track of active pairs, in case a new one is formed. The `unlink_port` function undoes a connection. Now we're able to complete the graph above as follows:
-
-```python
-net.link_ports(Pointer(0,0), Pointer(0,2))
-net.link_ports(Pointer(0,1), Pointer(3,2))
-net.link_ports(Pointer(1,0), Pointer(2,0))
-net.link_ports(Pointer(1,1), Pointer(3,0))
-net.link_ports(Pointer(1,2), Pointer(3,1))
-net.link_ports(Pointer(2,1), Pointer(2,2))
-```
-
-Now our graph is fully constructed. To complete our implementation, we just extend `Net` again with two more functions:
-
-
-```python
-    # Rewrites an active pair
-    def rewrite(self, (a_addr, b_addr)):
-        a_node = self.nodes[a_addr]
-        b_node = self.nodes[b_addr]
-
-        # If both nodes have the same label, connects their neighbors
-        if a_node.label == b_node.label:
-            a_aux1_dest = self.enter_port(Pointer(a_addr, 1))
-            b_aux1_dest = self.enter_port(Pointer(b_addr, 1))
-            self.link_ports(a_aux1_dest, b_aux1_dest)
-            a_aux2_dest = self.enter_port(Pointer(a_addr, 2))
-            b_aux2_dest = self.enter_port(Pointer(b_addr, 2))
-            self.link_ports(a_aux2_dest, b_aux2_dest)
-
-        # Otherwise, the nodes pass through each-other, duplicating themselves
-        else:
-            p_addr = self.alloc_node(b_node.label)
-            q_addr = self.alloc_node(b_node.label)
-            r_addr = self.alloc_node(a_node.label)
-            s_addr = self.alloc_node(a_node.label)
-            self.link_ports(Pointer(r_addr, 1), Pointer(p_addr, 1))
-            self.link_ports(Pointer(s_addr, 1), Pointer(p_addr, 2))
-            self.link_ports(Pointer(r_addr, 2), Pointer(q_addr, 1))
-            self.link_ports(Pointer(s_addr, 2), Pointer(q_addr, 2))
-            self.link_ports(Pointer(p_addr, 0), self.enter_port(Pointer(a_addr, 1)))
-            self.link_ports(Pointer(q_addr, 0), self.enter_port(Pointer(a_addr, 2)))
-            self.link_ports(Pointer(r_addr, 0), self.enter_port(Pointer(b_addr, 1)))
-            self.link_ports(Pointer(s_addr, 0), self.enter_port(Pointer(b_addr, 2)))
-
-        # Deallocates the space used by the active pair
-        for p in xrange(3):
-            self.unlink_port(Pointer(a_addr, p))
-            self.unlink_port(Pointer(b_addr, p))
-        self.free_node(a_addr)
-        self.free_node(b_addr)
-
-    # Rewrites active pairs until none is left, reducing the graph to normal form
-    def reduce(self):
-        rewrite_count = 0
-        while len(self.redex) > 0:
-            self.rewrite(self.redex.pop())
-            rewrite_count += 1
-        return rewrite_count
-```
-
-The first function, `rewrite`, receives an active pair and rewrites it, using the rules we presented previously. The second function, `reduce`, merely applies `rewrite` over and over to active pairs until there is no more work to be done, returning the computational cost of evaluating this program (net). Together, they form the core of our algorithm, encapsulating the fundamental rules of computation, annihilation and commutation. The first rule allows separate pieces of information to interact, capturing different phenomena such as functions, datatypes and pattern-matching. The second rule allows sub-graphs to be duplicated at will, capturing phenomena such as loops and recursion. Parallelism, while absent from this implementation, is captured by the fact redexes could be rewritten simultaneously. Memory allocation and garbage-collection are captured by the fact nodes are incrementally freed when subgraphs "go out of scope". We're now able to evaluate our input program (net) as follows:
+For that, we use 3 classes: `Pointer`, holding an address and a port, `Node`, holding a node's label and ports, and `Net`, holding the table above, plus an array of active pairs, and reclaimable memory addresses. On the `Net` class, we implement 2 methods for space management: `alloc_node` and `free_node`, 3 methods for pointer wiring and navigation: `enter_port`, `link_ports` and `unlink_port`, and 2 methods for reductions: `rewrite` and `reduce`. Together, they form the core of our algorithm, encapsulating the fundamental rules of computation, annihilation, which captures interaction, functions, datatypes and pattern matching, and commutation, which captures loops and recursion. Parallelism and garbage-collection are naturally captured by the reduction machinery. A fully commented, executable example is available at [`nasic.py`](nasic.py). By importing this file, we're able to load the net above and reduce it:
 
 ```
-net.reduce()
+net = Net.from_table(...)
 ```
 
-As a result, our `net` will now contain the following graph:
+This outputs the following table:
+
+addr | label | port 0 | port 1 | port 2
+--- | --- | --- | --- | ---
+0 | 0 | addr X, port X | addr X, port X | addr X, port X
+1 | 0 | addr X, port X | addr X, port X | addr X, port X
+2 | 1 | addr X, port X | addr X, port X | addr X, port X
+3 | 0 | addr X, port X | addr X, port X | addr X, port X
+
+Which represents the reduced form of our graph:
 
 (image)
-
-Which is the normal form of the input. This completes the reference implementation of Moon's low-level machine language, Nasic. An executable example is available at [`nasic.py`](nasic.py).
-
-```TODO
-note about the differences between interaction combinators and Nasic (symmetry, labels, no Erase/Root nodes needed)
-```
 
 ### Performance considerations
 
