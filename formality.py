@@ -117,7 +117,9 @@ class Lam:
         net.link_ports(Pointer(lam_addr, 2), body_ptr)
         return Pointer(tup_addr, 0)
 
-    #def infer(term, context):
+    def infer(self, context):
+        body = self.body.infer(extend(context, self.name, self.bind.shift(0, 1)))
+        return All(self.name, self.bind, body)
 
 class App:
     def __init__(self, func, argm):
@@ -144,6 +146,10 @@ class App:
         net.link_ports(Pointer(app_addr, 1), argm_ptr)
         return Pointer(app_addr, 2)
 
+    def infer(self, context):
+        func = self.func.infer(context)
+        return func.body.substitute(0, self.argm)
+
 class Var:
     def __init__(self, index):
         self.index = index
@@ -156,7 +162,7 @@ class Var:
             return "#" + str(self.index - scope.len())
 
     def shift(self, depth, inc):
-        return self.index if self.index < depth else self.index + inc
+        return Var(self.index if self.index < depth else self.index + inc)
 
     def substitute(self, depth, value):
         if self.index == depth:
@@ -179,6 +185,9 @@ class Var:
                 net.link_ports(Pointer(dup_addr, 0), ptr)
                 net.link_ports(Pointer(dup_addr, 1), dups_ptr)
                 return Pointer(dup_addr, 2)
+
+    def infer(self, context):
+        return context.get(self.index)[1]
 
 def net_to_term(net, ptr, var_ptrs, dup_exit):
     label = net.nodes[ptr.addr].label
@@ -226,6 +235,9 @@ def net_to_term(net, ptr, var_ptrs, dup_exit):
         else:
             return net_to_term(net, net.enter_port(Pointer(ptr.addr, 0)), var_ptrs, dup_exit.prepend(ptr.port))
 
+def extend(context, name, type):
+    return context.map(lambda (name, term): (name, term.shift(0, 1))).prepend((name, type))
+
 def term_to_net(term):
     net = Net()
     root_addr = net.alloc_node(0)
@@ -237,7 +249,7 @@ def term_to_net(term):
 def reduce(term):
     (net, _) = term_to_net(term)
     net.reduce()
-    term = net_to_term(net, net.enter_port(Pointer(0, 1)), List()) 
+    term = net_to_term(net, net.enter_port(Pointer(0, 1)), List(), List()) 
     return term
 
 ID = Lam("P", Typ(), Lam("x", Var(0), Var(0)))
@@ -250,15 +262,13 @@ NAT = All("P", Typ(),
 TWO = Lam("P", Typ(),
       Lam("f", All("x", Var(0), Var(1)),
       Lam("x", Var(1),
-      App(Var(0), App(Var(1), Var(2))))))
+      App(Var(1), App(Var(1), Var(0))))))
 
-ID  = Lam("x", Typ(), Var(0))
-FOO = Lam("f", Typ(), Lam("x", Typ(), App(Var(1), App(Var(1), App(Var(1), App(Var(1), App(Var(1), App(Var(1), App(Var(1), Var(0))))))))))
+FOO = Lam("f", Typ(), Lam("x", Typ(), App(Var(1), App(Var(1), App(Var(1), Var(0))))))
 
-term = App(App(App(FOO, FOO), ID), ID)
+term = TWO
 
 (net, ptr) = term_to_net(term)
-#print net
 
 print "Input term:"
 print term.to_string(List())
@@ -268,9 +278,12 @@ print "Recovered form net:"
 print net_to_term(net, net.enter_port(Pointer(0, 1)), List(), List()).to_string(List())
 print ""
 
-rewrites = net.reduce()
-print rewrites
+net.reduce()
 
 print "Reduced:"
 print net_to_term(net, net.enter_port(Pointer(0, 1)), List(), List()).to_string(List())
+print ""
+
+print "Inferred:"
+print term.infer(List()).to_string(List())
 print ""

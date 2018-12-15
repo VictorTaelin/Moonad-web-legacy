@@ -113,7 +113,7 @@ class Net:
         while len(self.redex) > 0:
             self.rewrite(self.redex.pop())
             rewrite_count += 1
-        return (rewrite_count, self)
+        return (self, rewrite_count)
 
     def __str__(self):
         text = ""
@@ -136,9 +136,7 @@ def run_example():
     net.link_ports(Pointer(2,1), Pointer(2,2))
     print "Input:"
     print net
-    rewrites = net.reduce()[0]
+    rewrites = net.reduce()[1]
     print "Output:"
     print net
     print "Rewrites: " + str(rewrites)
-
-run_example()
