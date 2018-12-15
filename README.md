@@ -88,7 +88,11 @@ Which represents the reduced form of our graph:
 
 ### Performance considerations
 
-While we've presented a complete Python implementation, it is clearly not the fastest one. In other of our implementations, we've observed remarkable performance characteristics. In ideal cases, Nasic managed to beat mature functional compilers such as GHC by orders of magnitude, due to optimal reductions and runtime fusion, which are unique to it. Even in worst cases, it didn't stand far behind in raw pattern-matches per second. Since those were naive implementations, though, there is still a lot of room for improvements. Nasic's structure makes it adequate for massively parallel architectures such as the GPU, which we did not fully explore yet. With proper miniaturization such as FPGAs and ASICs, we could have native Nasic processors as alternative for classical computer architectures. We leave it for client developers to creatively optimize their Nasic implementations as much as possible. 
+While we've presented a complete Python implementation, it is clearly not the fastest one. In the short term, Nasic will not be competitive with standard compilers. In other of our implementations, though, we've observed promising performance characteristics. In ideal cases, Nasic managed to beat mature functional compilers such as GHC by orders of magnitude, due to optimal reductions and runtime fusion, which are unique to it. Even in worst cases, it didn't stand far behind, taking in account raw pattern-matches per second. Since those are early implementations, there are several possible improvements. 
+
+A LLVM target with packed structures and no heap allocation would improve our rewrites per second. Simple optimizations such as prioritizing annihilations could keep the memory throughput lower. Native numeric operations could help, but we're not including them as part of the specification due to their complexity, and since they could hinder future optimizations. Nasic's inherent parallelism wasn't explored yet. GPU backends are promising, in special if they manage to use the shared memory of a streaming multiprocessor. Finally, proper miniaturization such as FPGAs and ASICs would make Nasic competitive with modern languages.
+
+We leave it for client developers to creatively optimize their Nasic implementations as much as possible. 
 
 ## 2. Formality: a high-level language for programs and proofs
 
