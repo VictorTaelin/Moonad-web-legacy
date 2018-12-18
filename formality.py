@@ -54,7 +54,7 @@ class Typ:
         return Typ()
 
     def substitute(self, depth, value):
-        Typ()
+        return Typ()
 
     def build_net(self, net, var_ptrs):
         typ_addr = net.alloc_node(3)
@@ -67,6 +67,8 @@ class Typ:
 class All:
     def __init__(self, name, bind, body):
         self.name = name
+        if bind == None:
+            raise(Exception("wtf"))
         self.bind = bind
         self.body = body
 
@@ -77,7 +79,7 @@ class All:
         return All(self.name, self.bind.shift(depth, inc), self.body.shift(depth + 1, inc)) 
 
     def substitute(self, depth, value):
-        return All(self.name, self.bind.substitute(self, depth, value), self.body.substitute(self, depth + 1, value))
+        return All(self.name, self.bind.substitute(depth, value), self.body.substitute(depth + 1, value))
 
     def build_net(self, net, var_ptrs):
         all_addr = net.alloc_node(2)
@@ -103,9 +105,8 @@ class Lam:
         return Lam(self.name, self.bind.shift(depth, inc), self.body.shift(depth + 1, inc)) 
 
     def substitute(self, depth, value):
-        return Lam(self.name, self.bind.substitute(self, depth, value), self.body.substitute(self, depth + 1, value))
+        return Lam(self.name, self.bind.substitute(depth, value), self.body.substitute(depth + 1, value))
 
-    # TODO cant do this because missing names, can't know what variable binds to what lambda
     def build_net(self, net, var_ptrs):
         lam_addr = net.alloc_node(1)
         tup_addr = net.alloc_node(1)
@@ -167,8 +168,10 @@ class Var:
     def substitute(self, depth, value):
         if self.index == depth:
             return value.shift(0, depth)
-        else:
+        elif self.index > depth:
             return Var(self.index - 1)
+        else:
+            return Var(self.index)
 
     def build_net(self, net, var_ptrs):
         ptr = var_ptrs.get(self.index)
@@ -246,27 +249,98 @@ def term_to_net(term):
     net.link_ports(Pointer(root_addr, 1), term_ptr)
     return (net, term_ptr)
 
-def reduce(term):
+def evaluate(term):
     (net, _) = term_to_net(term)
-    net.reduce()
+    net.evaluate()
     term = net_to_term(net, net.enter_port(Pointer(0, 1)), List(), List()) 
     return term
 
-ID = Lam("P", Typ(), Lam("x", Var(0), Var(0)))
+def parse_term(code):
+    class Cursor:
+        index = 0
 
-NAT = All("P", Typ(),
-      All("f", All("x", Var(0), Var(1)),
-      All("x", Var(1),
-      Var(2))))
+    def is_space(char):
+        return char == ' ' or char == '\t'
 
-TWO = Lam("P", Typ(),
-      Lam("f", All("x", Var(0), Var(1)),
-      Lam("x", Var(1),
-      App(Var(1), App(Var(1), Var(0))))))
+    def is_name_char(char):
+        return (  char >= b'a' and char <= b'z'
+               or char >= b'A' and char <= b'Z'
+               or char >= b'0' and char <= b'9'
+               or char == b'_'
+               or char == b'-')
 
-FOO = Lam("f", Typ(), Lam("x", Typ(), App(Var(1), App(Var(1), App(Var(1), Var(0))))))
+    def skip_spaces():
+        while Cursor.index < len(code) and is_space(code[Cursor.index]):
+            Cursor.index += 1
+        return Cursor.index
 
-term = TWO
+    def match(string):
+        skip_spaces()
+        if Cursor.index < len(code):
+            matched = code[Cursor.index : Cursor.index + len(string)] == string
+            if matched:
+                Cursor.index += len(string)
+            return matched
+
+    def parse_exact(string):
+        if not match(string):
+            raise(Exception("Parse error, expected '" + str(string) + "' at index " + str(Cursor.index) + "."))
+        
+    def parse_name():
+        name = ""
+        while Cursor.index < len(code) and is_name_char(code[Cursor.index]):
+            name = name + code[Cursor.index]
+            Cursor.index += 1
+        return name
+        
+    def parse_term(scope):
+        # Application
+        if match("("):
+            parsed = []
+            while Cursor.index < len(code) and not match(")"):
+                parsed.append(parse_term(scope))
+                skip_spaces()
+            return reduce(App, parsed)
+
+        # Forall
+        elif match("{"):
+            name = parse_name()
+            skip = parse_exact(":")
+            bind = parse_term(scope)
+            skip = parse_exact("}")
+            body = parse_term(scope.prepend(name))
+            return All(name, bind, body)
+
+        # Lambda
+        elif match("["):
+            name = parse_name()
+            skip = parse_exact(":")
+            bind = parse_term(scope)
+            skip = parse_exact("]")
+            body = parse_term(scope.prepend(name))
+            return Lam(name, bind, body)
+
+        # Type
+        elif match("Type"):
+            return Typ()
+
+        # Variable
+        else:
+            name = parse_name()
+            found = scope.find(lambda n: n == name)
+            if not found:
+                raise(Exception("Unbound variable: '" + str(name) + "' at index " + str(Cursor.index) + "."))
+            return Var(found[0])
+    return parse_term(List())
+            
+nat  = "{P : Type} {S : {n : P} P} {Z : P} P"
+n0   = "[P : Type] [S : {n : P} P] [Z : P] Z"
+n1   = "[P : Type] [S : {n : P} P] [Z : P] (S Z)"
+n2   = "[P : Type] [S : {n : P} P] [Z : P] (S (S Z))"
+n3   = "[P : Type] [S : {n : P} P] [Z : P] (S (S (S Z)))"
+add  = "[a : "+nat+"] [b : "+nat+"] [P : Type] [S : {x : P} P] [Z : P] (a P S (b P S Z))"
+main = "("+add+" "+n2+" "+n3+")"
+term = parse_term(main)
 
 (net, ptr) = term_to_net(term)
 
@@ -284,6 +358,6 @@ print "Reduced:"
 print net_to_term(net, net.enter_port(Pointer(0, 1)), List(), List()).to_string(List())
 print ""
 
-print "Inferred:"
+print "Inferred type:"
 print term.infer(List()).to_string(List())
 print ""
