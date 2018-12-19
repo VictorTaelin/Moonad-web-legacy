@@ -83,11 +83,14 @@ class All:
 
     def build_net(self, net, var_ptrs):
         all_addr = net.alloc_node(2)
+        tup_addr = net.alloc_node(2)
+        net.link_ports(Pointer(all_addr, 1), Pointer(all_addr, 1))
+        net.link_ports(Pointer(all_addr, 0), Pointer(tup_addr, 2))
         bind_ptr = self.bind.build_net(net, var_ptrs)
-        net.link_ports(Pointer(all_addr, 1), bind_ptr)
-        body_ptr = Lam(self.name, self.bind, self.body).build_net(net, var_ptrs)
+        net.link_ports(Pointer(tup_addr, 1), bind_ptr)
+        body_ptr = self.body.build_net(net, var_ptrs.prepend(Pointer(all_addr, 1)))
         net.link_ports(Pointer(all_addr, 2), body_ptr)
-        return Pointer(all_addr, 0)
+        return Pointer(tup_addr, 0)
 
     def infer(self, context):
         return Typ()
@@ -192,7 +195,45 @@ class Var:
     def infer(self, context):
         return context.get(self.index)[1]
 
-def net_to_term(net, ptr, var_ptrs, dup_exit):
+class Idt:
+    def __init__(self, name, type, ctrs):
+        self.name = name
+        self.type = type
+        self.ctrs = ctrs
+
+    def to_string(self, scope):
+        result = "data " + self.name + " : " + self.type.to_string(scope) + " "
+        for (name, type) in self.ctrs:
+            result += "| " + name + " : " + type.to_string(scope.prepend(self.name)) + " "
+        return result
+
+    def shift(self, depth, inc):
+        return Idt(self.name, self.type.shift(depth, inc), map(lambda ctr: ctr.shift(depth + 1, inc), self.ctrs))
+
+    def substitute(self, depth, value):
+        return Idt(self.name, self.type.substitute(depth, value), map(lambda ctr: ctr.substitute(depth + 1, value), self.ctrs))
+
+    def build_net(self, net, var_ptrs):
+        idt_type_addr = net.alloc_node(4)
+        idt_bind_addr = net.alloc_node(4)
+        idt_type_ptr = self.type.build_net(net, var_ptrs)
+        net.link_ports(Pointer(idt_type_addr, 1), idt_type_ptr)
+        net.link_ports(Pointer(idt_bind_addr, 1), Pointer(idt_bind_addr, 1))
+        net.link_ports(Pointer(idt_bind_addr, 0), Pointer(idt_type_addr, 2))
+        ctr_slot_ptr = Pointer(idt_bind_addr, 2)
+        for i in xrange(len(self.ctrs)):
+            ctr_addr = net.alloc_node(4)
+            ctr_type_ptr = self.ctrs[i][1].build_net(net, var_ptrs.prepend(Pointer(idt_bind_addr, 1)))
+            net.link_ports(Pointer(ctr_addr, 1), ctr_type_ptr)
+            net.link_ports(Pointer(ctr_addr, 0), ctr_slot_ptr)
+            ctr_slot_ptr = Pointer(ctr_addr, 2)
+        net.link_ports(ctr_slot_ptr, ctr_slot_ptr)
+        return Pointer(idt_type_addr, 0)
+
+    def infer(self, context):
+        return self.type
+
+def net_to_term(net, ptr, vars, exit):
     label = net.nodes[ptr.addr].label
 
     # Lam / Var / App
@@ -200,43 +241,69 @@ def net_to_term(net, ptr, var_ptrs, dup_exit):
 
         # Lam
         if ptr.port == 0:
-            bind = net_to_term(net, net.enter_port(Pointer(ptr.addr, 1)), var_ptrs, dup_exit)
+            bind = net_to_term(net, net.enter_port(Pointer(ptr.addr, 1)), vars, exit)
             ptr  = net.enter_port(Pointer(ptr.addr, 2))
-            body = net_to_term(net, net.enter_port(Pointer(ptr.addr, 2)), var_ptrs.prepend(Pointer(ptr.addr, 1)), dup_exit)
-            return Lam("x" + str(var_ptrs.len()), bind, body)
+            vars = vars.prepend(Pointer(ptr.addr, 1))
+            body = net_to_term(net, net.enter_port(Pointer(ptr.addr, 2)), vars, exit)
+            return Lam("x" + str(vars.len() - 1), bind, body)
 
         # Var
         if ptr.port == 1:
-            (index, _) = var_ptrs.find(lambda p: p == ptr)
-            return Var(index)
+            return Var(vars.find(lambda p: p == ptr)[0])
 
         # App
         if ptr.port == 2:
-            argm = net_to_term(net, net.enter_port(Pointer(ptr.addr, 1)), var_ptrs, dup_exit)
+            argm = net_to_term(net, net.enter_port(Pointer(ptr.addr, 1)), vars, exit)
             ptr  = net.enter_port(Pointer(ptr.addr, 0))
-            func = net_to_term(net, net.enter_port(Pointer(ptr.addr, 0)), var_ptrs, dup_exit)
+            func = net_to_term(net, net.enter_port(Pointer(ptr.addr, 0)), vars, exit)
             return App(func, argm)
 
-    # All
+    # All / Var
     if label == 2:
-        type = net_to_term(net, net.enter_port(Pointer(ptr.addr, 1)), var_ptrs, dup_exit)
-        body = net_to_term(net, net.enter_port(Pointer(ptr.addr, 2)), var_ptrs, dup_exit).body
-        return All("x" + str(var_ptrs.len()), type, body)
+        # All
+        if ptr.port == 0:
+            bind = net_to_term(net, net.enter_port(Pointer(ptr.addr, 1)), vars, exit)
+            ptr  = net.enter_port(Pointer(ptr.addr, 2))
+            vars = vars.prepend(Pointer(ptr.addr, 1))
+            body = net_to_term(net, net.enter_port(Pointer(ptr.addr, 2)), vars, exit)
+            return All("x" + str(vars.len() - 1), bind, body)
+
+        # Var
+        if ptr.port == 1:
+            return Var(vars.find(lambda p: p == ptr)[0])
 
     # Typ
     if label == 3:
         return Typ()
 
+    # Idt / Var
+    if label == 4:
+        # Idt
+        if ptr.port == 0:
+            type = net_to_term(net, net.enter_port(Pointer(ptr.addr, 1)), vars, exit)
+            ptr  = net.enter_port(Pointer(ptr.addr, 2))
+            vars = vars.prepend(Pointer(ptr.addr, 1))
+            ptr  = net.enter_port(Pointer(ptr.addr, 2))
+            ctrs = []
+            while net.enter_port(ptr) != ptr:
+                ctrs.append(("ctr" + str(len(ctrs)), net_to_term(net, net.enter_port(Pointer(ptr.addr, 1)), vars, exit)))
+                ptr = net.enter_port(Pointer(ptr.addr, 2))
+            return Idt("x" + str(vars.len() - 1), type, ctrs)
+
+        # Var
+        if ptr.port == 1:
+            return Var(vars.find(lambda p: p == ptr)[0])
+
     # Var
     if label >= 1000 and label < 2000:
-        return Var(label - 1000 + var_ptrs.len())
+        return Var(label - 1000 + vars.len())
 
     # Dup
     if label >= 2000:
         if ptr.port == 0:
-            return net_to_term(net, net.enter_port(Pointer(ptr.addr, dup_exit.head)), var_ptrs, dup_exit.tail)
+            return net_to_term(net, net.enter_port(Pointer(ptr.addr, exit.head)), vars, exit.tail)
         else:
-            return net_to_term(net, net.enter_port(Pointer(ptr.addr, 0)), var_ptrs, dup_exit.prepend(ptr.port))
+            return net_to_term(net, net.enter_port(Pointer(ptr.addr, 0)), vars, exit.prepend(ptr.port))
 
 def extend(context, name, type):
     return context.map(lambda (name, term): (name, term.shift(0, 1))).prepend((name, type))
@@ -255,7 +322,7 @@ def evaluate(term):
     term = net_to_term(net, net.enter_port(Pointer(0, 1)), List(), List()) 
     return term
 
-def parse_term(code):
+def string_to_term(code):
     class Cursor:
         index = 0
 
@@ -287,6 +354,7 @@ def parse_term(code):
             raise(Exception("Parse error, expected '" + str(string) + "' at index " + str(Cursor.index) + "."))
         
     def parse_name():
+        skip_spaces()
         name = ""
         while Cursor.index < len(code) and is_name_char(code[Cursor.index]):
             name = name + code[Cursor.index]
@@ -324,6 +392,19 @@ def parse_term(code):
         elif match("Type"):
             return Typ()
 
+        # IDT
+        elif match("data"):
+            name = parse_name()
+            skip = parse_exact(":")
+            type = parse_term(scope)
+            ctrs = []
+            while match("|"):
+                ctr_name = parse_name()
+                ctr_skip = parse_exact(":")
+                ctr_type = parse_term(scope.prepend(name))
+                ctrs.append((ctr_name, ctr_type))
+            return Idt(name, type, ctrs)
+
         # Variable
         else:
             name = parse_name()
@@ -332,7 +413,7 @@ def parse_term(code):
                 raise(Exception("Unbound variable: '" + str(name) + "' at index " + str(Cursor.index) + "."))
             return Var(found[0])
     return parse_term(List())
-            
+
 nat  = "{P : Type} {S : {n : P} P} {Z : P} P"
 n0   = "[P : Type] [S : {n : P} P] [Z : P] Z"
 n1   = "[P : Type] [S : {n : P} P] [Z : P] (S Z)"
@@ -340,7 +421,9 @@ n2   = "[P : Type] [S : {n : P} P] [Z : P] (S (S Z))"
 n3   = "[P : Type] [S : {n : P} P] [Z : P] (S (S (S Z)))"
 add  = "[a : "+nat+"] [b : "+nat+"] [P : Type] [S : {x : P} P] [Z : P] (a P S (b P S Z))"
 main = "("+add+" "+n2+" "+n3+")"
-term = parse_term(main)
+main = "data Nat : Type | Succ : {x : Nat} Nat | Zero : Nat"
+
+term = string_to_term(main)
 
 (net, ptr) = term_to_net(term)
 
