@@ -122,7 +122,7 @@ class Lam:
         return Pointer(tup_addr, 0)
 
     def infer(self, context):
-        body = self.body.infer(extend(context, self.name, self.bind.shift(0, 1)))
+        body = self.body.infer(extend(context, (self.name, self.bind.shift(0, 1))))
         return All(self.name, self.bind, body)
 
 class App:
@@ -233,6 +233,29 @@ class Idt:
     def infer(self, context):
         return self.type
 
+class New:
+    def __init__(type, body):
+        self.type = type
+        self.body = body
+
+    def to_string(self, scope):
+        return "@" + self.type.to_string(scope) + " " + self.body.to_string(reduce(extend, self.type.ctrs, scope))
+
+    def shift(self, depth, inc):
+        return New(self.type.shift(depth, inc), self.body.shift(depth + len(self.type.ctrs), inc))
+
+    def substitute(self, depth, value):
+        return New(self.type.substitute(depth, value), self.body.substitute(depth + len(self.type.ctrs), value))
+
+    def build_net(self, net, var_ptrs):
+        wpa_addr = net.alloc_node(5)
+        wpb_addr = net.alloc_node(5)
+        fda_addr = net.alloc_node(5)
+        fdb_addr = net.alloc_node(5)
+        fdc_addr = net.alloc_node(5)
+        ctr_addrs = []
+        fld_addrs = []
+        
 def net_to_term(net, ptr, vars, exit):
     label = net.nodes[ptr.addr].label
 
@@ -305,7 +328,7 @@ def net_to_term(net, ptr, vars, exit):
         else:
             return net_to_term(net, net.enter_port(Pointer(ptr.addr, 0)), vars, exit.prepend(ptr.port))
 
-def extend(context, name, type):
+def extend(context, (name, type)):
     return context.map(lambda (name, term): (name, term.shift(0, 1))).prepend((name, type))
 
 def term_to_net(term):
