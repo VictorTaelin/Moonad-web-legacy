@@ -153,7 +153,7 @@ class Var:
     def to_string(self, context):
         name = context.get(self.index)[0]
         if name is not None:
-            return name + # "#" + str(self.index)
+            return name # + "#" + str(self.index)
         else:
             return "#" + str(self.index)
 
