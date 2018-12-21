@@ -1,47 +1,26 @@
 from nasic import *
 from list import *
 
-# DECISOES:
-# lam sem type
-# var com strings porque se nao seria possivel parsear e stringificar
-# -> mas ai o to_net precisa do infer...
+class Context:
+    def __init__(self, list = List()):
+        self.list = list
 
-# ok, fazer o seguinte: vars tem bruijn indices
-# -> mas existe um novo termo, Nam, que guarda uma string
-# -> dessa forma, parsear eh possivel sem inferencias
-# -> na hora de inferir, o Nam simplesmente vira um Var on-the-spot
+    def shift(self, depth, inc):
+        return Context(self.list.map(lambda (name, type, value): (name, type.shift(depth, inc), value.shift(depth, inc))))
 
-# eh possivel evitar totalmente reduce, shift, etc., usando interaction nets!
-# -> pra isso, eh preciso recuperar tipos totalmente, tal como All e Typ
-# -> lambdas precisam guardar o tipo, apps precisam descarta-lo
-# -> um modo "erased" pode ser usado, que retorna lambdas com None, quando sabe-se que o tipo nao sera usado
-# -> tambem eh preciso recuperar free variables
-# -> bruijn indexes nao sao mais necessarios, posso mudar para nomes
-# -> implementacao drasticamente simplificada! centenas de linhas de codigo a menos
+    def extend(self, (name, type, value)):
+        return Context(self.list.prepend((name, type, value)))
 
-# double [x : Nat] [y : Nat]
-#     case x -> Nat
-#     | succ => Nat< succ Nat< succ (fold pred) > >
-#     | zero => Nat< zero >
+    def view(self):
+        for i in xrange(self.list.len()):
+            (name, type, value) = self.list.get(i)
+            print name + " : " + type.to_string(self.to_scope()) + " = " + value.to_string(self.to_scope())
 
-# double (x : Nat) (y : Nat)
-#   case x -> Nat
-#   | succ => Nat[ <succ <succ <fold pred>>> ]
-#   | zero => Nat[ zero ]
+    def get(self, index):
+        return self.list.get(index)
 
-# double (x : Nat) (y : Nat) Nat =
-#   case x -> Nat
-#   | succ => Nat{ succ (succ (fold pred)) }
-#   | zero => Nat{ zero }
-
-# induction (n : Nat) (P : (n : Nat) -> Type) (S : (n : Nat) (p : P n) (P (Nat.succ n))) (Z : P Nat.zero) (P n) =
-#   case n -> P self
-#   | succ => s pred (fold pred P s z)
-#   | zero => z
-
-# subst {A : Type} {x : A} {y : A} {e : Eq A x y} {P : {x : A} Type} {px : P x} (P y) = :A :x :y :e
-#   case e -> {P : {x : A} Type} {px : P x} || P y
-#   | refl => px
+    def to_scope(self):
+        return self.list.map(lambda (name, type, value): name)
 
 class Typ:
     def __init__(self):
@@ -53,22 +32,18 @@ class Typ:
     def shift(self, enclose, inc):
         return Typ()
 
-    def substitute(self, depth, value):
-        return Typ()
-
-    def build_net(self, net, var_ptrs):
-        typ_addr = net.alloc_node(3)
-        net.link_ports(Pointer(typ_addr, 0), Pointer(typ_addr, 2))
-        return Pointer(typ_addr, 1)
+    def equal(self, other):
+        return isinstance(other, Typ)
 
     def infer(self, context):
+        return Typ()
+
+    def refine(self, context):
         return Typ()
 
 class All:
     def __init__(self, name, bind, body):
         self.name = name
-        if bind == None:
-            raise(Exception("wtf"))
         self.bind = bind
         self.body = body
 
@@ -78,22 +53,20 @@ class All:
     def shift(self, depth, inc):
         return All(self.name, self.bind.shift(depth, inc), self.body.shift(depth + 1, inc)) 
 
-    def substitute(self, depth, value):
-        return All(self.name, self.bind.substitute(depth, value), self.body.substitute(depth + 1, value))
-
-    def build_net(self, net, var_ptrs):
-        all_addr = net.alloc_node(2)
-        tup_addr = net.alloc_node(2)
-        net.link_ports(Pointer(all_addr, 1), Pointer(all_addr, 1))
-        net.link_ports(Pointer(all_addr, 0), Pointer(tup_addr, 2))
-        bind_ptr = self.bind.build_net(net, var_ptrs)
-        net.link_ports(Pointer(tup_addr, 1), bind_ptr)
-        body_ptr = self.body.build_net(net, var_ptrs.prepend(Pointer(all_addr, 1)))
-        net.link_ports(Pointer(all_addr, 2), body_ptr)
-        return Pointer(tup_addr, 0)
+    def equal(self, other):
+        return isinstance(other, All) and self.bind.equal(other.bind) and self.body.equal(other.body)
 
     def infer(self, context):
+        bind_t = self.bind.infer(context)
+        body_t = self.body.infer(context.shift(0, 1).extend((self.name, self.bind.shift(0, 1), Var(0))))
+        if not bind_t.equal(Typ()) or not body_t.equal(Typ()):
+            raise(Exception("Forall not a type."))
         return Typ()
+
+    def refine(self, context):
+        bind_v = self.bind.refine(context)
+        body_v = self.body.refine(context.shift(0, 1).extend((self.name, self.bind.shift(0, 1), Var(0))))
+        return All(self.name, bind_v, body_v)
 
 class Lam: 
     def __init__(self, name, bind, body):
@@ -107,23 +80,20 @@ class Lam:
     def shift(self, depth, inc):
         return Lam(self.name, self.bind.shift(depth, inc), self.body.shift(depth + 1, inc)) 
 
-    def substitute(self, depth, value):
-        return Lam(self.name, self.bind.substitute(depth, value), self.body.substitute(depth + 1, value))
-
-    def build_net(self, net, var_ptrs):
-        lam_addr = net.alloc_node(1)
-        tup_addr = net.alloc_node(1)
-        net.link_ports(Pointer(lam_addr, 1), Pointer(lam_addr, 1))
-        net.link_ports(Pointer(lam_addr, 0), Pointer(tup_addr, 2))
-        bind_ptr = self.bind.build_net(net, var_ptrs)
-        net.link_ports(Pointer(tup_addr, 1), bind_ptr)
-        body_ptr = self.body.build_net(net, var_ptrs.prepend(Pointer(lam_addr, 1)))
-        net.link_ports(Pointer(lam_addr, 2), body_ptr)
-        return Pointer(tup_addr, 0)
+    def equal(self, other):
+        return isinstance(other, Lam) and self.bind.equal(other.bind) and self.body.equal(other.body)
 
     def infer(self, context):
-        body = self.body.infer(extend(context, (self.name, self.bind.shift(0, 1))))
-        return All(self.name, self.bind, body)
+        bind_v = self.bind.refine(context)
+        body_t = self.body.infer(context.shift(0, 1).extend((self.name, self.bind.shift(0, 1), Var(0))))
+        result = All(self.name, bind_v, body_t)
+        result.infer(context).equal(Typ())
+        return result
+
+    def refine(self, context):
+        bind_v = self.bind.refine(context)
+        body_v = self.body.refine(context.shift(0, 1).extend((self.name, self.bind.shift(0, 1), Var(0))))
+        return Lam(self.name, bind_v, body_v)
 
 class App:
     def __init__(self, func, argm):
@@ -131,28 +101,35 @@ class App:
         self.argm = argm
 
     def to_string(self, scope):
-        return "(" + self.func.to_string(scope) + " " + self.argm.to_string(scope) + ")"
+        return "(" + self.func.to_string(scope) + " " + self.argm.to_string(scope) + ")" 
 
     def shift(self, depth, inc):
         return App(self.func.shift(depth, inc), self.argm.shift(depth, inc))
 
-    def substitute(self, depth, value):
-        return App(self.func.substitute(depth, value), self.argm.substitute(depth, value))
-
-    def build_net(self, net, var_ptrs):
-        app_addr = net.alloc_node(1)
-        tup_addr = net.alloc_node(1)
-        net.link_ports(Pointer(tup_addr, 2), Pointer(app_addr, 0))
-        net.link_ports(Pointer(tup_addr, 1), Pointer(tup_addr, 1))
-        func_ptr = self.func.build_net(net, var_ptrs)
-        net.link_ports(Pointer(tup_addr, 0), func_ptr)
-        argm_ptr = self.argm.build_net(net, var_ptrs)
-        net.link_ports(Pointer(app_addr, 1), argm_ptr)
-        return Pointer(app_addr, 2)
+    def equal(self, other):
+        return isinstance(other, App) and self.func.equal(other.func) and self.argm.equal(other.argm)
 
     def infer(self, context):
-        func = self.func.infer(context)
-        return func.body.substitute(0, self.argm)
+        func_t = self.func.infer(context)
+        argm_v = self.argm.refine(context)
+        argm_t = self.argm.infer(context)
+        if not isinstance(func_t, All):
+            raise(Exception("Non-function application."))
+        elif not func_t.bind.refine(context).equal(argm_t.refine(context)):
+            print self.func.to_string(context.to_scope()) + " applied to " + self.argm.to_string(context.to_scope()) + ":"
+            print "- " + func_t.bind.refine(context).to_string(context.to_scope())
+            print "- " + argm_t.refine(context).to_string(context.to_scope())
+            raise(Exception("Type mismatch."))
+        else:
+            return func_t.body.refine(context.extend((func_t.name, func_t.bind, argm_v)))
+
+    def refine(self, context):
+        func_v = self.func.refine(context)
+        argm_v = self.argm.refine(context)
+        if isinstance(func_v, Lam):
+            return func_v.body.refine(context.extend((func_v.name, func_v.bind, argm_v)))
+        else:
+            return App(func_v, argm_v)
 
 class Var:
     def __init__(self, index):
@@ -161,39 +138,21 @@ class Var:
     def to_string(self, scope):
         name = scope.get(self.index)
         if name is not None:
-            return name
+            return name# + "#" + str(self.index)
         else:
-            return "#" + str(self.index - scope.len())
+            return "#" + str(self.index)
 
     def shift(self, depth, inc):
         return Var(self.index if self.index < depth else self.index + inc)
 
-    def substitute(self, depth, value):
-        if self.index == depth:
-            return value.shift(0, depth)
-        elif self.index > depth:
-            return Var(self.index - 1)
-        else:
-            return Var(self.index)
-
-    def build_net(self, net, var_ptrs):
-        ptr = var_ptrs.get(self.index)
-        if ptr is None:
-            var_addr = net.alloc_node(self.index + 1000 - var_ptrs.len())
-            net.link_ports(Pointer(var_addr, 0), Pointer(var_addr, 2))
-            return Pointer(var_addr, 1)
-        else:
-            dups_ptr = net.enter_port(ptr)
-            if net.enter_port(ptr) == ptr:
-                return ptr
-            else:
-                dup_addr = net.alloc_node(2000 + ptr.addr)
-                net.link_ports(Pointer(dup_addr, 0), ptr)
-                net.link_ports(Pointer(dup_addr, 1), dups_ptr)
-                return Pointer(dup_addr, 2)
+    def equal(self, other):
+        return isinstance(other, Var) and self.index == other.index
 
     def infer(self, context):
         return context.get(self.index)[1]
+
+    def refine(self, context):
+        return context.get(self.index)[2]
 
 class Idt:
     def __init__(self, name, type, ctrs):
@@ -210,140 +169,34 @@ class Idt:
     def shift(self, depth, inc):
         return Idt(self.name, self.type.shift(depth, inc), map(lambda ctr: ctr.shift(depth + 1, inc), self.ctrs))
 
-    def substitute(self, depth, value):
-        return Idt(self.name, self.type.substitute(depth, value), map(lambda ctr: ctr.substitute(depth + 1, value), self.ctrs))
-
-    def build_net(self, net, var_ptrs):
-        idt_type_addr = net.alloc_node(4)
-        idt_bind_addr = net.alloc_node(4)
-        idt_type_ptr = self.type.build_net(net, var_ptrs)
-        net.link_ports(Pointer(idt_type_addr, 1), idt_type_ptr)
-        net.link_ports(Pointer(idt_bind_addr, 1), Pointer(idt_bind_addr, 1))
-        net.link_ports(Pointer(idt_bind_addr, 0), Pointer(idt_type_addr, 2))
-        ctr_slot_ptr = Pointer(idt_bind_addr, 2)
-        for i in xrange(len(self.ctrs)):
-            ctr_addr = net.alloc_node(4)
-            ctr_type_ptr = self.ctrs[i][1].build_net(net, var_ptrs.prepend(Pointer(idt_bind_addr, 1)))
-            net.link_ports(Pointer(ctr_addr, 1), ctr_type_ptr)
-            net.link_ports(Pointer(ctr_addr, 0), ctr_slot_ptr)
-            ctr_slot_ptr = Pointer(ctr_addr, 2)
-        net.link_ports(ctr_slot_ptr, ctr_slot_ptr)
-        return Pointer(idt_type_addr, 0)
+    def equal(self, other):
+        return isinstance(other, Idt) and self.type.equal(other.type) and all([a[1].equal(b[1]) for (a,b) in zip(self.ctrs, other.ctrs)])
 
     def infer(self, context):
         return self.type
 
-class New:
-    def __init__(type, body):
+    def refine(self, context):
+        type = self.type.refine(context)
+        ctrs = map(lambda (name, type): (name, type.refine(context.extend((self.name, self.type, Var(0))))), self.ctrs)
+        return Idt(self.name, type, ctrs) 
+
+class Ctr:
+    def __init__(type, name, vals):
         self.type = type
-        self.body = body
+        self.name = name
+        self.vals = vals
 
     def to_string(self, scope):
-        return "@" + self.type.to_string(scope) + " " + self.body.to_string(reduce(extend, self.type.ctrs, scope))
+        return "@" + self.type.to_string(scope) + " " + self.name + " " + " ".join(map(lambda val: val.to_string(scope)), self.vals)
 
     def shift(self, depth, inc):
-        return New(self.type.shift(depth, inc), self.body.shift(depth + len(self.type.ctrs), inc))
+        return Ctr(self.type.shift(depth, inc), self.name, map(lambda val: val.shift(depth, inc), self.vals))
 
-    def substitute(self, depth, value):
-        return New(self.type.substitute(depth, value), self.body.substitute(depth + len(self.type.ctrs), value))
+    def equal(self, other):
+        return isinstance(other, Ctr) and self.type.equal(other.type) and all([a.equal(b) for (a,b) in zip(self.vals, other.vals)])
 
-    def build_net(self, net, var_ptrs):
-        wpa_addr = net.alloc_node(5)
-        wpb_addr = net.alloc_node(5)
-        fda_addr = net.alloc_node(5)
-        fdb_addr = net.alloc_node(5)
-        fdc_addr = net.alloc_node(5)
-        ctr_addrs = []
-        fld_addrs = []
-        
-def net_to_term(net, ptr, vars, exit):
-    label = net.nodes[ptr.addr].label
-
-    # Lam / Var / App
-    if label == 1:
-
-        # Lam
-        if ptr.port == 0:
-            bind = net_to_term(net, net.enter_port(Pointer(ptr.addr, 1)), vars, exit)
-            ptr  = net.enter_port(Pointer(ptr.addr, 2))
-            vars = vars.prepend(Pointer(ptr.addr, 1))
-            body = net_to_term(net, net.enter_port(Pointer(ptr.addr, 2)), vars, exit)
-            return Lam("x" + str(vars.len() - 1), bind, body)
-
-        # Var
-        if ptr.port == 1:
-            return Var(vars.find(lambda p: p == ptr)[0])
-
-        # App
-        if ptr.port == 2:
-            argm = net_to_term(net, net.enter_port(Pointer(ptr.addr, 1)), vars, exit)
-            ptr  = net.enter_port(Pointer(ptr.addr, 0))
-            func = net_to_term(net, net.enter_port(Pointer(ptr.addr, 0)), vars, exit)
-            return App(func, argm)
-
-    # All / Var
-    if label == 2:
-        # All
-        if ptr.port == 0:
-            bind = net_to_term(net, net.enter_port(Pointer(ptr.addr, 1)), vars, exit)
-            ptr  = net.enter_port(Pointer(ptr.addr, 2))
-            vars = vars.prepend(Pointer(ptr.addr, 1))
-            body = net_to_term(net, net.enter_port(Pointer(ptr.addr, 2)), vars, exit)
-            return All("x" + str(vars.len() - 1), bind, body)
-
-        # Var
-        if ptr.port == 1:
-            return Var(vars.find(lambda p: p == ptr)[0])
-
-    # Typ
-    if label == 3:
-        return Typ()
-
-    # Idt / Var
-    if label == 4:
-        # Idt
-        if ptr.port == 0:
-            type = net_to_term(net, net.enter_port(Pointer(ptr.addr, 1)), vars, exit)
-            ptr  = net.enter_port(Pointer(ptr.addr, 2))
-            vars = vars.prepend(Pointer(ptr.addr, 1))
-            ptr  = net.enter_port(Pointer(ptr.addr, 2))
-            ctrs = []
-            while net.enter_port(ptr) != ptr:
-                ctrs.append(("ctr" + str(len(ctrs)), net_to_term(net, net.enter_port(Pointer(ptr.addr, 1)), vars, exit)))
-                ptr = net.enter_port(Pointer(ptr.addr, 2))
-            return Idt("x" + str(vars.len() - 1), type, ctrs)
-
-        # Var
-        if ptr.port == 1:
-            return Var(vars.find(lambda p: p == ptr)[0])
-
-    # Var
-    if label >= 1000 and label < 2000:
-        return Var(label - 1000 + vars.len())
-
-    # Dup
-    if label >= 2000:
-        if ptr.port == 0:
-            return net_to_term(net, net.enter_port(Pointer(ptr.addr, exit.head)), vars, exit.tail)
-        else:
-            return net_to_term(net, net.enter_port(Pointer(ptr.addr, 0)), vars, exit.prepend(ptr.port))
-
-def extend(context, (name, type)):
-    return context.map(lambda (name, term): (name, term.shift(0, 1))).prepend((name, type))
-
-def term_to_net(term):
-    net = Net()
-    root_addr = net.alloc_node(0)
-    term_ptr = term.build_net(net, List())
-    net.link_ports(Pointer(root_addr, 0), Pointer(root_addr, 2)) 
-    net.link_ports(Pointer(root_addr, 1), term_ptr)
-    return (net, term_ptr)
-
-def evaluate(term):
-    (net, _) = term_to_net(term)
-    net.evaluate()
-    term = net_to_term(net, net.enter_port(Pointer(0, 1)), List(), List()) 
-    return term
+    def refine(self, context):
+        return Ctr(self.type.refine(context), self.name, map(lambda val: val.refine(context), self.vals))
 
 def string_to_term(code):
     class Cursor:
@@ -371,6 +224,7 @@ def string_to_term(code):
             if matched:
                 Cursor.index += len(string)
             return matched
+        return False
 
     def parse_exact(string):
         if not match(string):
@@ -387,11 +241,12 @@ def string_to_term(code):
     def parse_term(scope):
         # Application
         if match("("):
-            parsed = []
+            func = parse_term(scope)
             while Cursor.index < len(code) and not match(")"):
-                parsed.append(parse_term(scope))
+                argm = parse_term(scope)
+                func = App(func, argm)
                 skip_spaces()
-            return reduce(App, parsed)
+            return func
 
         # Forall
         elif match("{"):
@@ -428,42 +283,63 @@ def string_to_term(code):
                 ctrs.append((ctr_name, ctr_type))
             return Idt(name, type, ctrs)
 
-        # Variable
+        # Constructor
+        #elif match("@"):
+            #name = parse_name()
+            #skip = parse_exact(":")
+            #type = parse_term(scope)
+            #ctrs = []
+            #while match("|"):
+                #ctr_name = parse_name()
+                #ctr_skip = parse_exact(":")
+                #ctr_type = parse_term(scope.prepend(name))
+                #ctrs.append((ctr_name, ctr_type))
+            #return Idt(name, type, ctrs)
+
+        # Variable (Bruijn indexed)
+        elif match("#"):
+            index = parse_name()
+            return Var(int(index))
+
+        # Variable (named)
         else:
             name = parse_name()
             found = scope.find(lambda n: n == name)
             if not found:
                 raise(Exception("Unbound variable: '" + str(name) + "' at index " + str(Cursor.index) + "."))
             return Var(found[0])
+
     return parse_term(List())
 
-nat  = "{P : Type} {S : {n : P} P} {Z : P} P"
-n0   = "[P : Type] [S : {n : P} P] [Z : P] Z"
-n1   = "[P : Type] [S : {n : P} P] [Z : P] (S Z)"
-n2   = "[P : Type] [S : {n : P} P] [Z : P] (S (S Z))"
-n3   = "[P : Type] [S : {n : P} P] [Z : P] (S (S (S Z)))"
-add  = "[a : "+nat+"] [b : "+nat+"] [P : Type] [S : {x : P} P] [Z : P] (a P S (b P S Z))"
-main = "("+add+" "+n2+" "+n3+")"
-main = "data Nat : Type | Succ : {x : Nat} Nat | Zero : Nat"
+nat   = "{P : Type} {S : {n : P} P} {Z : P} P"
+n0    = "[P : Type] [S : {n : P} P] [Z : P] Z"
+n1    = "[P : Type] [S : {n : P} P] [Z : P] (S Z)"
+n2    = "[P : Type] [S : {n : P} P] [Z : P] (S (S Z))"
+n3    = "[P : Type] [S : {n : P} P] [Z : P] (S (S (S Z)))"
+add   = "[a : "+nat+"] [b : "+nat+"] [P : Type] [S : {x : P} P] [Z : P] (a P S (b P S Z))"
+mul   = "[a : "+nat+"] [b : "+nat+"] [P : Type] [S : {x : P} P] (a P (b P S))"
+
+cbool = "{P : Type} {T : P} {F : P} P"
+ctrue = "[P : Type] [T : P] [F : P] T"
+cfals = "[P : Type] [T : P] [F : P] F"
+
+main  = "("+mul+" "+n3+" "+n3+")"
+
+main  = "data Bool : Type | true : Bool | false : Bool"
 
 term = string_to_term(main)
-
-(net, ptr) = term_to_net(term)
 
 print "Input term:"
 print term.to_string(List())
 print ""
 
-print "Recovered form net:"
-print net_to_term(net, net.enter_port(Pointer(0, 1)), List(), List()).to_string(List())
-print ""
-
-net.reduce()
-
-print "Reduced:"
-print net_to_term(net, net.enter_port(Pointer(0, 1)), List(), List()).to_string(List())
+print "Normal form:"
+print term.refine(Context()).to_string(List())
 print ""
 
 print "Inferred type:"
-print term.infer(List()).to_string(List())
+print term.infer(Context()).to_string(List())
 print ""
+
+
+
