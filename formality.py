@@ -8,8 +8,10 @@ class Context:
     def shift(self, depth, inc):
         return Context(self.list.map(lambda (name, type, value): (name, type.shift(depth, inc), value.shift(depth, inc))))
 
-    def extend(self, (name, type, value)):
-        return Context(self.list.prepend((name, type, value)))
+    def extend(self, (name, type, term)):
+        shifted_type = type.shift(0, 1) if type is not None else Var(0)
+        shifted_term = term.shift(0, 1) if term is not None else Var(0)
+        return Context(self.shift(0, 1).list.prepend((name, shifted_type, shifted_term)))
 
     def get(self, index):
         return self.list.get(index)
@@ -36,9 +38,6 @@ class Typ:
     def shift(self, depth, inc):
         return Typ()
 
-    #def subst(self, depth, val):
-        #return Typ()
-
     def equal(self, other):
         return isinstance(other, Typ)
 
@@ -61,7 +60,7 @@ class All:
         self.body = body
 
     def to_string(self, context):
-        return "{" + self.name + " : " + self.bind.to_string(context) + "} " + self.body.to_string(context.extend((self.name, self.bind, Var(0))))
+        return "{" + self.name + " : " + self.bind.to_string(context) + "} " + self.body.to_string(context.extend((self.name, self.bind, None)))
 
     def shift(self, depth, inc):
         return All(self.name, self.bind.shift(depth, inc), self.body.shift(depth + 1, inc)) 
@@ -74,14 +73,14 @@ class All:
 
     def infer(self, context):
         bind_t = self.bind.infer(context)
-        body_t = self.body.infer(context.shift(0, 1).extend((self.name, self.bind.shift(0, 1), Var(0))))
+        body_t = self.body.infer(context.extend((self.name, self.bind, None)))
         if not bind_t.equal(Typ()) or not body_t.equal(Typ()):
             raise(Exception("Forall not a type."))
         return Typ()
 
     def refine(self, context):
         bind_v = self.bind.refine(context)
-        body_v = self.body.refine(context.shift(0, 1).extend((self.name, self.bind.shift(0, 1), Var(0))))
+        body_v = self.body.refine(context.extend((self.name, self.bind, None)))
         return All(self.name, bind_v, body_v)
 
     def get_call_expr(self):
@@ -97,7 +96,7 @@ class Lam:
         self.body = body
 
     def to_string(self, context):
-        return "[" + self.name + " : " + self.bind.to_string(context) + "] " + self.body.to_string(context.extend((self.name, self.bind, Var(0))))
+        return "[" + self.name + " : " + self.bind.to_string(context) + "] " + self.body.to_string(context.extend((self.name, self.bind, None)))
 
     def shift(self, depth, inc):
         return Lam(self.name, self.bind.shift(depth, inc), self.body.shift(depth + 1, inc)) 
@@ -110,14 +109,14 @@ class Lam:
 
     def infer(self, context):
         bind_v = self.bind.refine(context)
-        body_t = self.body.infer(context.shift(0, 1).extend((self.name, self.bind.shift(0, 1), Var(0))))
+        body_t = self.body.infer(context.extend((self.name, self.bind, None)))
         result = All(self.name, bind_v, body_t)
         result.infer(context).equal(Typ())
         return result
 
     def refine(self, context):
         bind_v = self.bind.refine(context)
-        body_v = self.body.refine(context.shift(0, 1).extend((self.name, self.bind.shift(0, 1), Var(0))))
+        body_v = self.body.refine(context.extend((self.name, self.bind, None)))
         return Lam(self.name, bind_v, body_v)
 
     def get_call_expr(self):
@@ -149,13 +148,13 @@ class App:
         elif not func_t.bind.refine(context).equal(argm_t.refine(context)):
             raise(Exception("Type mismatch."))
         else:
-            return func_t.body.refine(context.extend((func_t.name, func_t.bind, argm_v)))
+            return func_t.body.refine(context.extend((func_t.name, func_t.bind, argm_v)).shift(0, -1))
 
     def refine(self, context):
         func_v = self.func.refine(context)
         argm_v = self.argm.refine(context)
         if isinstance(func_v, Lam):
-            return func_v.body.refine(context.extend((func_v.name, func_v.bind, argm_v)))
+            return func_v.body.refine(context.extend((func_v.name, func_v.bind, argm_v)).shift(0, -1))
         else:
             return App(func_v, argm_v)
 
@@ -215,7 +214,7 @@ class Idt:
 
     def refine(self, context):
         type = self.type.refine(context)
-        ctrs = map(lambda (name, type): (name, type.refine(context.extend((self.name, self.type, Var(0))))), self.ctrs)
+        ctrs = map(lambda (name, type): (name, type.refine(context.extend((self.name, self.type, None)))), self.ctrs)
         return Idt(self.name, type, ctrs) 
 
     def get_call_expr(self):
@@ -227,7 +226,7 @@ class Idt:
     def get_ctr_type(self, context, name):
         for (ctr_name, ctr_type) in self.ctrs:
             if ctr_name == name:
-                return ctr_type.refine(context.extend((self.name, self.type, self)))
+                return ctr_type.refine(context.extend((self.name, self.type, self)).shift(0, -1))
 
 class Ctr:
     def __init__(self, type, name):
@@ -266,8 +265,8 @@ class Mat:
         term_t = term.infer(context)
         (datatype, indices) = term_t.get_call_expr()
         for (i, ((name, type), value)) in enumerate(zip(datatype.type.get_binders(), indices)):
-            context = context.shift(0, 1).extend((name, type.shift(0, 1), value.shift(0, 1 + i)))
-        context = context.shift(0, 1).extend(("self", term_t.shift(0, 1 + len(indices)), term.shift(0, 1 + len(indices))))
+            context = context.extend((name, type, value.shift(0, i)))
+        context = context.extend(("self", term_t.shift(0, len(indices)), term.shift(0, len(indices))))
         return context
 
     @staticmethod
@@ -276,7 +275,7 @@ class Mat:
         datatype = term.infer(context).get_call_expr()[0]
         case_type = datatype.get_ctr_type(context, case_name)
         for (field_name, field_type) in case_type.get_binders():
-            context = context.shift(0, 1).extend((field_name, field_type.shift(0, 1), Var(0)))
+            context = context.extend((field_name, field_type, None))
         return context
 
     def to_string(self, context):
@@ -305,8 +304,8 @@ class Mat:
             for (name, body) in self.cses:
                 if name == func.name:
                     new_context = context
-                    for argm in argms:
-                        new_context = new_context.extend((None, None, argm.shift(0, len(argms))))
+                    for (i, argm) in enumerate(argms):
+                        new_context = new_context.extend((None, None, argm.shift(0, len(argms) - i - 1)))
                     return body.refine(new_context)
         return Mat(term, moti, cses)
 
@@ -392,7 +391,7 @@ def string_to_term(code):
             while match("|"):
                 ctr_name = parse_name()
                 ctr_skip = parse_exact(":")
-                ctr_type = parse_term(context.extend((name, type, Var(0))))
+                ctr_type = parse_term(context.extend((name, type, None)))
                 ctrs.append((ctr_name, ctr_type))
             return Idt(name, type, ctrs)
 
@@ -411,7 +410,7 @@ def string_to_term(code):
             skip = parse_exact(":")
             bind = parse_term(context)
             skip = parse_exact("}")
-            body = parse_term(context.extend((name, bind, Var(0))))
+            body = parse_term(context.extend((name, bind, None)))
             return All(name, bind, body)
 
         # Lambda
@@ -420,7 +419,7 @@ def string_to_term(code):
             skip = parse_exact(":")
             bind = parse_term(context)
             skip = parse_exact("]")
-            body = parse_term(context.extend((name, bind, Var(0))))
+            body = parse_term(context.extend((name, bind, None)))
             return Lam(name, bind, body)
 
         # Type
@@ -488,8 +487,9 @@ Pair = "($ Pair : {A : Type} {B : Type} Type | new : {A : Type} {B : Type} {a : 
 new = "(@"+Pair+" new)"
 pair = "("+new+" "+Bool+" "+Nat+" "+true+" "+zero+")"
 
-main = "(% "+pair+" -> A | new => a)"
+main = Bool_elim
 main = "("+mul+" "+n3+" "+n3+")"
+main = "(% "+pair+" -> Type | new => A)"
 
 term = string_to_term(main)
 
