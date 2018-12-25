@@ -1,14 +1,6 @@
 from nasic import *
 from list import *
 
-def view(context):
-    def go(list):
-        if list.head is not None:
-            print list.head[0] + " : " + list.head[1].to_string(Context()) + " = " + list.head[2].to_string(Context())
-            go(list.tail)
-    go(context.list)
-
-
 class Context:
     def __init__(self, list = List()):
         self.list = list
@@ -84,8 +76,6 @@ class All:
         bind_t = self.bind.infer(context)
         body_t = self.body.infer(context.shift(0, 1).extend((self.name, self.bind.shift(0, 1), Var(0))))
         if not bind_t.equal(Typ()) or not body_t.equal(Typ()):
-            print bind_t.to_string(Context())
-            print body_t.to_string(Context())
             raise(Exception("Forall not a type."))
         return Typ()
 
@@ -165,12 +155,7 @@ class App:
         func_v = self.func.refine(context)
         argm_v = self.argm.refine(context)
         if isinstance(func_v, Lam):
-            print "refining " + func_v.to_string(Context())
-            view(context.extend((func_v.name, func_v.bind, argm_v)))
-            print "argm_v is " + argm_v.to_string(Context())
-            result = func_v.body.refine(context.extend((func_v.name, func_v.bind, argm_v)))
-            print "result " + result.to_string(Context())
-            return result
+            return func_v.body.refine(context.extend((func_v.name, func_v.bind, argm_v)))
         else:
             return App(func_v, argm_v)
 
@@ -503,8 +488,8 @@ Pair = "($ Pair : {A : Type} {B : Type} Type | new : {A : Type} {B : Type} {a : 
 new = "(@"+Pair+" new)"
 pair = "("+new+" "+Bool+" "+Nat+" "+true+" "+zero+")"
 
-main = "("+mul+" "+n3+" "+n3+")"
 main = "(% "+pair+" -> A | new => a)"
+main = "("+mul+" "+n3+" "+n3+")"
 
 term = string_to_term(main)
 
