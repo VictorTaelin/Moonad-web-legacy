@@ -1,3 +1,13 @@
+# ideia atual:
+# - usar church encodings (ou seja, fazer pattern-matching dar auto-fold)
+# - trocar ctr por new novamente, mas dessa vez sendo church-encoded
+# - fusão de map, etc., torna-se fácil
+# - pred em O(1), inc fusivel, etc., podem ser implementados para tipos especificos (Bits8, Bits7, Bits6...)?
+
+
+
+
+
 class Context:
     def __init__(self, list = []):
         self.list = list
@@ -220,10 +230,11 @@ class Idt:
         self.ctrs = ctrs # [(string, term)]
 
     def to_string(self, context):
-        result = "<" + self.name + " : " + self.type.to_string(context)
-        for (i, (name, type)) in enumerate(self.ctrs):
-            result += " | " + name + " : " + type.to_string(context.extend((self.name, self.type, Var(0))))
-        return result + ">"
+        return self.name
+        #result = "<" + self.name + " : " + self.type.to_string(context)
+        #for (i, (name, type)) in enumerate(self.ctrs):
+            #result += " | " + name + " : " + type.to_string(context.extend((self.name, self.type, Var(0))))
+        #return result + ">"
 
     def shift(self, depth, inc):
         return Idt(self.name, self.type.shift(depth, inc), [(name, type.shift(depth + 1, inc)) for (name, type) in self.ctrs])
@@ -236,6 +247,11 @@ class Idt:
 
     def get_binders(self):
         return []
+
+    def get_ctr_arity(self, name):
+        for (ctr_name, ctr_type) in self.ctrs:
+            if ctr_name == name:
+                return len(ctr_type.get_binders())
 
     def get_ctr_type(self, context, name):
         for (ctr_name, ctr_type) in self.ctrs:
@@ -277,45 +293,46 @@ class Ctr:
         return self.type.eval(context).get_ctr_type(context, self.name)
 
 class Mat:
-    def __init__(self, term, moti, cses):
+    def __init__(self, term, type, moti, cses):
         self.term = term # term
+        self.type = type # term
         self.moti = moti # term
         self.cses = cses # [(string, term)]
 
     @staticmethod
-    def extend_motive_context(context, term):
-        term_t = term.check(context)
-        (datatype, indices) = term_t.get_call_expr()
+    def extend_motive_context(context, term, type):
+        (datatype, indices) = type.get_call_expr()
         for (i, ((name, type), value)) in enumerate(zip(datatype.type.get_binders(), indices)):
             context = context.extend((name, type, value.shift(0, i)))
-        context = context.extend(("self", term_t.shift(0, len(indices)), term.shift(0, len(indices))))
+        context = context.extend(("self", type.shift(0, len(indices)), term.shift(0, len(indices))))
         return context
 
     @staticmethod
-    def extend_case_context(context, term, case_name):
-        term_t = term.check(context)
-        datatype = term.check(context).get_call_expr()[0]
+    def extend_case_context(context, term, type, case_name):
+        datatype = type.get_call_expr()[0]
         case_type = datatype.get_ctr_type(context, case_name)
         for (field_name, field_type) in case_type.get_binders():
             context = context.extend((field_name, field_type, None))
         return context
 
     def to_string(self, context):
-        result = "$ " + self.term.to_string(context) + " -> " + self.moti.to_string(Mat.extend_motive_context(context, self.term))
+        result = "$ " + self.term.to_string(context) + " -> " + self.moti.to_string(Mat.extend_motive_context(context, self.term, self.type))
         for (i, (case_name, case_body)) in enumerate(self.cses):
-            result += " | " + case_name + " => " + case_body.to_string(Mat.extend_case_context(context, self.term, case_name))
+            result += " | " + case_name + " => " + case_body.to_string(Mat.extend_case_context(context, self.term, self.type, case_name))
         return result+" ;"
 
     def shift(self, depth, inc):
-        datatype = term.check(context).get_call_expr()[0]
+        datatype = self.type.get_call_expr()[0]
         term = self.term.shift(depth, inc)
+        type = self.type.shift(depth, inc)
         moti = self.moti.shift(depth, inc)
-        cses = [(name, body.shift(depth + len(get_ctr_type(context, case_name).get_binders()), inc)) for (name, body) in self.cses]
-        return Mat(term, moti, cses)
+        cses = [(case_name, case_body.shift(depth + datatype.get_ctr_arity(case_name), inc)) for (case_name, case_body) in self.cses]
+        return Mat(term, type, moti, cses)
 
     def equal(self, other):
         if isinstance(other, Mat):
             term_e = self.term.equal(other.term)
+            type_e = self.type.equal(other.type)
             moti_e = self.moti.equal(other.moti)
             cses_e = all([a[1].equal(b[1]) for (a,b) in zip(self.cses, other.cses)])
             return term_e and moti_e and cses_e
@@ -323,8 +340,7 @@ class Mat:
 
     def eval(self, context):
         term = self.term.eval(context)
-        moti = self.moti.eval(Mat.extend_motive_context(context, self.term))
-        cses = [(name, case.eval(Mat.extend_case_context(context, self.term, name))) for (name, case) in self.cses]
+        type = self.type.eval(context)
         (func, argms) = term.eval(context).get_call_expr()
         if isinstance(func, Ctr):
             for (name, body) in self.cses:
@@ -333,15 +349,16 @@ class Mat:
                     for (i, argm) in enumerate(argms):
                         new_context = new_context.extend((None, None, argm.shift(0, len(argms) - i - 1)))
                     return body.eval(new_context)
-        return Mat(term, moti, cses)
+        moti = self.moti.eval(Mat.extend_motive_context(context, self.term, self.type))
+        cses = [(name, case.eval(Mat.extend_case_context(context, self.term, self.type, name))) for (name, case) in self.cses]
+        return Mat(term, type, moti, cses)
 
     def check(self, context):
-        term_t = self.term.check(context)
-        (datatype, index_values) = term_t.get_call_expr()
+        (datatype, index_values) = self.type.get_call_expr()
         motive_depth = len(index_values) + 1
 
         for (case_name, case_body) in self.cses:
-            case_context = Mat.extend_case_context(context, self.term, case_name)
+            case_context = Mat.extend_case_context(context, self.term, self.type, case_name)
             case_ctr_type = datatype.get_ctr_type(context, case_name)
             case_field_count = len(case_ctr_type.get_binders())
 
@@ -349,7 +366,7 @@ class Mat:
             for i in xrange(case_field_count):
                 witness = App(witness, Var(case_field_count - i - 1))
 
-            case_expect_type = self.moti.shift(0, case_field_count).eval(Mat.extend_motive_context(case_context, witness)).shift(0, -motive_depth)
+            case_expect_type = self.moti.shift(0, case_field_count).eval(Mat.extend_motive_context(case_context, witness, witness.check(case_context))).shift(0, -motive_depth)
             case_actual_type = case_body.check(case_context)
 
             if not case_actual_type.equal(case_expect_type):
@@ -357,7 +374,7 @@ class Mat:
                     + "- Expected : " + case_expect_type.to_string(case_context) + "\n"
                     + "- Actual   : " + case_actual_type.to_string(case_context)))
 
-        return self.moti.eval(Mat.extend_motive_context(context, self.term)).shift(0, -motive_depth)
+        return self.moti.eval(Mat.extend_motive_context(context, self.term, self.type)).shift(0, -motive_depth)
 
     def get_call_expr(self):
         return []
@@ -462,16 +479,17 @@ def string_to_term(code):
         # Pattern-match
         elif match("$"):
             term = parse_term(context, defs)
+            type = term.check(context).eval(context)
             skip = parse_exact("->")
-            moti = parse_term(Mat.extend_motive_context(context, term), defs)
+            moti = parse_term(Mat.extend_motive_context(context, term, type), defs)
             cses = [] 
             while match("|"):
                 cse_name = parse_name()
                 cse_skip = parse_exact("=>")
-                cse_body = parse_term(Mat.extend_case_context(context, term, cse_name), defs)
+                cse_body = parse_term(Mat.extend_case_context(context, term, type, cse_name), defs)
                 cses.append((cse_name, cse_body))
             parse_exact(";")
-            return Mat(term, moti, cses)
+            return Mat(term, type, moti, cses)
 
         # Definition
         elif match("def"):
@@ -511,6 +529,9 @@ test = """
     def c0 [P : Type] [S : {n : P} P] [Z : P]
         Z
 
+    def cS [n : CNat] [P : Type] [S : {n : P} P] [Z : P]
+        (S (n P S Z))
+
     def c1 [P : Type] [S : {n : P} P] [Z : P]
         (S Z)
 
@@ -526,21 +547,9 @@ test = """
     def mul [a : CNat] [b : CNat] [P : Type] [S : {x : P} P]
         (a P (b P S))
 
-    def Nat
-        < Nat  : Type
-        | succ : {pred : Nat} Nat
-        | zero : Nat >
-
-    def succ
-        @Nat.succ
-
-    def zero
-        @Nat.zero
-
-    def pred [n : Nat]
-        $ n    -> Nat
-        | succ => pred
-        | zero => zero ;
+    def Unit
+        < Unit : Type
+        | new  : Unit >
 
     def Bool
         < Bool  : Type
@@ -558,6 +567,22 @@ test = """
         | true  => T
         | false => F ;
 
+    def Nat
+        < Nat  : Type
+        | succ : {pred : Nat} Nat
+        | zero : Nat >
+
+    def succ
+        @Nat.succ
+
+    def zero
+        @Nat.zero
+
+    def pred [n : Nat]
+        $ n    -> Nat
+        | succ => pred
+        | zero => zero ;
+
     def Pair [A : Type] [B : Type]
         < Pair : Type
         | new  : {a : A} {b : B} Pair >
@@ -570,6 +595,10 @@ test = """
         $ pair -> B
         | new  => b ;
 
+    def Nut [T : Type]
+        < Nut : Type
+        | new : {n : T} Nut >
+
     def test-mul (mul c3 c3)
     def test-pair (@(Pair Bool Nat).new true @Nat.zero)
     def test-fst (fst Bool Nat test-pair)
@@ -577,7 +606,30 @@ test = """
     def test-pred (pred (@Nat.succ (@Nat.succ (@Nat.succ @Nat.zero))))
     def test-elim bool-elim
 
-    test-pair
+    def BitsZ
+        < Bits : Type
+        | E    : Bits >
+
+    def BitsS [T : Type]
+        < Bits : Type
+        | O    : {pred : T} Bits
+        | I    : {pred : T} Bits >
+
+    def Bits [n : CNat] (n Type BitsS BitsZ)
+
+    def not1 [bs : (Bits c1)]
+        $ bs -> (Bits c1)
+        | O  => (@(Bits c1).I pred)
+        | I  => (@(Bits c1).O pred);
+
+    def not2 [bs : (Bits c2)]
+        $ bs -> (Bits c2)
+        | O  => (@(Bits c2).I (not1 pred))
+        | I  => (@(Bits c2).O (not1 pred));
+
+    def zero (@(Bits c2).O (@(Bits c1).O @(Bits c0).E))
+
+    (not2 zero)
 """
 
 term = string_to_term(test)
