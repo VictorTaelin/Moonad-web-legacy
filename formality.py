@@ -3,382 +3,35 @@ class Context:
         self.list = list
 
     def shift(self, depth, inc):
-        return Context(map(lambda (name, type, value): (name, type.shift(depth, inc), value.shift(depth, inc)), self.list))
+        new_list = []
+        for binder in self.list:
+            if binder is None:
+                new_list.append(None)
+            else:
+                new_list.append((binder[0], binder[1].shift(depth, inc), binder[2].shift(depth, inc)))
+        return Context(new_list)
 
-    def extend(self, (name, type, term)):
-        shifted = lambda term: term.shift(0, 1) if term is not None else Var(0)
-        return Context([(name, shifted(type), shifted(term))] + self.shift(0, 1).list)
+    def extend(self, binder):
+        return Context([binder] + self.shift(0, 1).list)
 
     def get(self, index):
         return self.list[index] if index < len(self.list) else None
 
     def find(self, name):
-        skip = 0
-        while name[-1] == "'":
-            name = name[:-1]
-            skip += 1
         for i in xrange(len(self.list)):
             if self.list[i][0] == name:
-                if skip > 0:
-                    skip -= 1
-                else:
-                    return (i, self.list[i])
+                return self.list[i]
         return None
-
-    def len(self):
-        return len(self.list)
-
-class Defs:
-    def __init__(self, dict = {}):
-        self.dict = dict
-
-    def define(self, key, val):
-        dict = self.dict.copy()
-        dict[key] = val
-        return Defs(dict)
-
-    def get(self, key):
-        return self.dict[key] if key in self.dict else None
-
-class Typ:
-    def __init__(self):
-        pass
-
-    def to_string(self, context):
-        return "Type"
-
-    def shift(self, depth, inc):
-        return Typ()
-
-    def equal(self, other):
-        return isinstance(other, Typ)
-
-    def get_call_expr(self):
-        return (self, [])
-
-    def get_binders(self):
-        return []
-
-    def check(self, context):
-        return Typ()
-
-    def eval(self, context):
-        return Typ()
-
-class All:
-    def __init__(self, name, bind, body):
-        self.name = name
-        self.bind = bind
-        self.body = body
-
-    def to_string(self, context):
-        return "{" + self.name + " : " + self.bind.to_string(context) + "} " + self.body.to_string(context.extend((self.name, self.bind, None)))
-
-    def shift(self, depth, inc):
-        return All(self.name, self.bind.shift(depth, inc), self.body.shift(depth + 1, inc)) 
-
-    def subst(self, depth, val):
-        return All(self.name, self.bind.subst(depth, inc), self.body.subst(depth + 1, inc))
-
-    def equal(self, other):
-        return isinstance(other, All) and self.bind.equal(other.bind) and self.body.equal(other.body)
-
-    def get_call_expr(self):
-        return (self, [])
-
-    def get_binders(self):
-        return [(self.name, self.bind)] + self.body.get_binders()
-
-    def check(self, context):
-        bind_t = self.bind.check(context)
-        body_t = self.body.check(context.extend((self.name, self.bind, None)))
-        if not bind_t.equal(Typ()) or not body_t.equal(Typ()):
-            raise(Exception("Forall not a type."))
-        return Typ()
-
-    def eval(self, context):
-        bind_v = self.bind.eval(context)
-        body_v = self.body.eval(context.extend((self.name, self.bind, None)))
-        return All(self.name, bind_v, body_v)
-
-class Lam: 
-    def __init__(self, name, bind, body):
-        self.name = name
-        self.bind = bind
-        self.body = body
-
-    def to_string(self, context):
-        return "[" + self.name + " : " + self.bind.to_string(context) + "] " + self.body.to_string(context.extend((self.name, self.bind, None)))
-
-    def shift(self, depth, inc):
-        return Lam(self.name, self.bind.shift(depth, inc), self.body.shift(depth + 1, inc)) 
-
-    def equal(self, other):
-        return isinstance(other, Lam) and self.bind.equal(other.bind) and self.body.equal(other.body)
-
-    def get_call_expr(self):
-        return (self, [])
-
-    def get_binders(self):
-        return [(self.name, self.bind)] + self.body.get_binders()
-
-    def check(self, context):
-        bind_v = self.bind.eval(context)
-        body_t = self.body.check(context.extend((self.name, self.bind, None)))
-        result = All(self.name, bind_v, body_t)
-        result.check(context).equal(Typ())
-        return result.eval(context)
-
-    def eval(self, context):
-        bind_v = self.bind.eval(context)
-        body_v = self.body.eval(context.extend((self.name, self.bind, None)))
-        return Lam(self.name, bind_v, body_v)
-
-class App:
-    def __init__(self, func, argm):
-        self.func = func
-        self.argm = argm
-
-    def to_string(self, context):
-        (func, argms) = self.get_call_expr()
-        result = "(" + func.to_string(context)
-        for argm in argms:
-            result += " " + argm.to_string(context)
-        return result + ")"
-
-    def shift(self, depth, inc):
-        return App(self.func.shift(depth, inc), self.argm.shift(depth, inc))
-
-    def equal(self, other):
-        return isinstance(other, App) and self.func.equal(other.func) and self.argm.equal(other.argm)
-
-    def get_call_expr(self):
-        (func, argms) = self.func.get_call_expr()
-        return (func, argms + [self.argm])
-
-    def get_binders(self):
-        return []
-
-    def check(self, context):
-        func_t = self.func.check(context)
-        argm_v = self.argm.eval(context)
-        argm_t = self.argm.check(context)
-        if not isinstance(func_t, All):
-            raise(Exception("Non-function application."))
-        elif not func_t.bind.eval(context).equal(argm_t.eval(context)):
-            raise(Exception("Type mismatch on '" + self.to_string(context) + "' application.\n"
-                + "- Expected : " + func_t.bind.eval(context).to_string(context) + "\n"
-                + "- Actual   : " + argm_t.eval(context).to_string(context)))
-        else:
-            return func_t.body.eval(context.extend((func_t.name, func_t.bind, argm_v)).shift(0, -1))
-
-    def eval(self, context):
-        func_v = self.func.eval(context)
-        argm_v = self.argm.eval(context)
-        if isinstance(func_v, Lam):
-            return func_v.body.eval(context.extend((func_v.name, func_v.bind, argm_v)).shift(0, -1))
-        else:
-            return App(func_v, argm_v)
-
-class Var:
-    def __init__(self, index):
-        self.index = index
-
-    def to_string(self, context):
-        binder = context.get(self.index)
-        if binder is not None:
-            name = binder[0]
-            for i in xrange(self.index):
-                if filter(lambda c: c != "'", context.list[i][0]) == binder[0]:
-                    name += "'"
-            return name
-        else:
-            return "#" + str(self.index)
-
-    def shift(self, depth, inc):
-        return Var(self.index if self.index < depth else self.index + inc)
-
-    def equal(self, other):
-        return isinstance(other, Var) and self.index == other.index
-
-    def get_call_expr(self):
-        return (self, [])
-
-    def get_binders(self):
-        return []
-
-    def check(self, context):
-        return context.get(self.index)[1].eval(context)
-
-    def eval(self, context):
-        return context.get(self.index)[2]
-
-class Idt:
-    def __init__(self, name, type, ctrs):
-        self.name = name # string
-        self.type = type # term
-        self.ctrs = ctrs # [(string, term)]
-
-    def to_string(self, context):
-        result = "<" + self.name + " : " + self.type.to_string(context)
-        for (i, (name, type)) in enumerate(self.ctrs):
-            result += " | " + name + " : " + type.to_string(context.extend((self.name, self.type, Var(0))))
-        return result + ">"
-
-    def shift(self, depth, inc):
-        return Idt(self.name, self.type.shift(depth, inc), [(name, type.shift(depth + 1, inc)) for (name, type) in self.ctrs])
-
-    def equal(self, other):
-        return isinstance(other, Idt) and self.type.equal(other.type) and all([a[1].equal(b[1]) for (a,b) in zip(self.ctrs, other.ctrs)])
-
-    def get_call_expr(self):
-        return (self, [])
-
-    def get_binders(self):
-        return []
-
-    def get_ctr_type(self, context, name):
-        for (ctr_name, ctr_type) in self.ctrs:
-            if ctr_name == name:
-                return ctr_type.eval(context.extend((self.name, self.type, self)).shift(0, -1))
-
-    def check(self, context):
-        return self.type.eval(context)
-
-    def eval(self, context):
-        type = self.type.eval(context)
-        ctrs = map(lambda (name, type): (name, type.eval(context.extend((self.name, self.type, None)))), self.ctrs)
-        return Idt(self.name, type, ctrs) 
-
-class Ctr:
-    def __init__(self, type, name):
-        self.type = type
-        self.name = name
-
-    def to_string(self, context):
-        return "@" + self.type.to_string(context) + "." + self.name
-
-    def shift(self, depth, inc):
-        return Ctr(self.type.shift(depth, inc), self.name)
-
-    def equal(self, other):
-        return isinstance(other, Ctr) and self.type.equal(other.type) and self.name == other.name
-
-    def get_call_expr(self):
-        return (self, [])
-
-    def get_binders(self):
-        return []
-
-    def eval(self, context):
-        return Ctr(self.type.eval(context), self.name)
-
-    def check(self, context):
-        return self.type.eval(context).get_ctr_type(context, self.name)
-
-class Mat:
-    def __init__(self, term, moti, cses):
-        self.term = term # term
-        self.moti = moti # term
-        self.cses = cses # [(string, term)]
-
-    @staticmethod
-    def extend_motive_context(context, term):
-        term_t = term.check(context)
-        (datatype, indices) = term_t.get_call_expr()
-        for (i, ((name, type), value)) in enumerate(zip(datatype.type.get_binders(), indices)):
-            context = context.extend((name, type, value.shift(0, i)))
-        context = context.extend(("self", term_t.shift(0, len(indices)), term.shift(0, len(indices))))
-        return context
-
-    @staticmethod
-    def extend_case_context(context, term, case_name):
-        term_t = term.check(context)
-        datatype = term.check(context).get_call_expr()[0]
-        case_type = datatype.get_ctr_type(context, case_name)
-        for (field_name, field_type) in case_type.get_binders():
-            context = context.extend((field_name, field_type, None))
-        return context
-
-    def to_string(self, context):
-        result = "$ " + self.term.to_string(context) + " -> " + self.moti.to_string(Mat.extend_motive_context(context, self.term))
-        for (i, (case_name, case_body)) in enumerate(self.cses):
-            result += " | " + case_name + " => " + case_body.to_string(Mat.extend_case_context(context, self.term, case_name))
-        return result+" ;"
-
-    def shift(self, depth, inc):
-        datatype = term.check(context).get_call_expr()[0]
-        term = self.term.shift(depth, inc)
-        moti = self.moti.shift(depth, inc)
-        cses = [(name, body.shift(depth + len(get_ctr_type(context, case_name).get_binders()), inc)) for (name, body) in self.cses]
-        return Mat(term, moti, cses)
-
-    def equal(self, other):
-        if isinstance(other, Mat):
-            term_e = self.term.equal(other.term)
-            moti_e = self.moti.equal(other.moti)
-            cses_e = all([a[1].equal(b[1]) for (a,b) in zip(self.cses, other.cses)])
-            return term_e and moti_e and cses_e
-        return False
-
-    def eval(self, context):
-        term = self.term.eval(context)
-        moti = self.moti.eval(Mat.extend_motive_context(context, self.term))
-        cses = [(name, case.eval(Mat.extend_case_context(context, self.term, name))) for (name, case) in self.cses]
-        (func, argms) = term.eval(context).get_call_expr()
-        if isinstance(func, Ctr):
-            for (name, body) in self.cses:
-                if name == func.name:
-                    new_context = context
-                    for (i, argm) in enumerate(argms):
-                        new_context = new_context.extend((None, None, argm.shift(0, len(argms) - i - 1)))
-                    return body.eval(new_context)
-        return Mat(term, moti, cses)
-
-    def check(self, context):
-        term_t = self.term.check(context)
-        (datatype, index_values) = term_t.get_call_expr()
-        motive_depth = len(index_values) + 1
-
-        for (case_name, case_body) in self.cses:
-            case_context = Mat.extend_case_context(context, self.term, case_name)
-            case_ctr_type = datatype.get_ctr_type(context, case_name)
-            case_field_count = len(case_ctr_type.get_binders())
-
-            witness = Ctr(datatype.shift(0, case_field_count), case_name)
-            for i in xrange(case_field_count):
-                witness = App(witness, Var(case_field_count - i - 1))
-
-            case_expect_type = self.moti.shift(0, case_field_count).eval(Mat.extend_motive_context(case_context, witness)).shift(0, -motive_depth)
-            case_actual_type = case_body.check(case_context)
-
-            if not case_actual_type.equal(case_expect_type):
-                raise(Exception("Type mismatch on '" + case_name + "' case.\n"
-                    + "- Expected : " + case_expect_type.to_string(case_context) + "\n"
-                    + "- Actual   : " + case_actual_type.to_string(case_context)))
-
-        return self.moti.eval(Mat.extend_motive_context(context, self.term)).shift(0, -motive_depth)
-
-    def get_call_expr(self):
-        return []
-
-    def get_binders(self):
-        return []
 
 def string_to_term(code):
     class Cursor:
         index = 0
 
     def is_space(char):
-        return char == ' ' or char == '\t' or char == '\n'
+        return char in " \t\n"
 
     def is_name_char(char):
-        return (  char >= 'a' and char <= 'z'
-               or char >= 'A' and char <= 'Z'
-               or char >= '0' and char <= '9'
-               or char == "'"
-               or char == '_'
-               or char == '-')
+        return char in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
 
     def skip_spaces():
         while Cursor.index < len(code) and is_space(code[Cursor.index]):
@@ -387,11 +40,10 @@ def string_to_term(code):
 
     def match(string):
         skip_spaces()
-        if Cursor.index < len(code):
-            matched = code[Cursor.index : Cursor.index + len(string)] == string
-            if matched:
-                Cursor.index += len(string)
-            return matched
+        sliced = code[Cursor.index : Cursor.index + len(string)]
+        if sliced == string:
+            Cursor.index += len(string)
+            return sliced
         return False
 
     def parse_exact(string):
@@ -406,78 +58,80 @@ def string_to_term(code):
             Cursor.index += 1
         return name
         
-    def parse_term(context, defs):
-        # IDT
-        if match("<"):
-            name = parse_name()
-            skip = parse_exact(":")
-            type = parse_term(context, defs)
-            ctrs = []
-            while match("|"):
-                ctr_name = parse_name()
-                ctr_skip = parse_exact(":")
-                ctr_type = parse_term(context.extend((name, type, None)), defs)
-                ctrs.append((ctr_name, ctr_type))
-            parse_exact(">")
-            return Idt(name, type, ctrs)
+    def parse_term(context):
+        # Comment
+        if match("--"):
+            while Cursor.index < len(code) and code[Cursor.index] != "\n":
+                Cursor.index += 1
+            return parse_term(context)
 
         # Application
         elif match("("):
-            func = parse_term(context, defs)
+            func = parse_term(context)
             while Cursor.index < len(code) and not match(")"):
-                argm = parse_term(context, defs)
-                func = App(func, argm)
+                eras = match("-")
+                argm = parse_term(context)
+                func = App(eras, func, argm)
                 skip_spaces()
             return func
 
         # Forall
         elif match("{"):
+            eras = match("-")
             name = parse_name()
             skip = parse_exact(":")
-            bind = parse_term(context, defs)
+            bind = parse_term(context.extend((name, Var(0), Var(0))))
             skip = parse_exact("}")
-            body = parse_term(context.extend((name, bind, None)), defs)
-            return All(name, bind, body)
+            body = parse_term(context.extend((name, Var(0), Var(0))))
+            return All(eras, name, bind, body)
 
         # Lambda
         elif match("["):
+            eras = match("-")
             name = parse_name()
             skip = parse_exact(":")
-            bind = parse_term(context, defs)
+            bind = parse_term(context.extend((name, Var(0), Var(0))))
             skip = parse_exact("]")
-            body = parse_term(context.extend((name, bind, None)), defs)
-            return Lam(name, bind, body)
+            body = parse_term(context.extend((name, Var(0), Var(0))))
+            return Lam(eras, name, bind, body)
+
+        # Dep
+        elif match("@"):
+            name = parse_name()
+            body = parse_term(context.extend((name, Var(0), Var(0))))
+            return Dep(name, body)
+
+        # New
+        elif match("#"):
+            type = parse_term(context)
+            term = parse_term(context)
+            return New(type, term)
+
+        # Era
+        elif match("."):
+            term = parse_term(context)
+            return Era(term)
+
+        # Use
+        elif match("~"):
+            term = parse_term(context)
+            return Use(term)
+
+        # Pro
+        elif match("^"):
+            type = parse_term(context)
+            term = parse_term(context)
+            return Pro(type, term)
 
         # Type
         elif match("Type"):
             return Typ()
 
-        # Constructor
-        elif match("@"):
-            type = parse_term(context, defs)
-            skip = parse_exact(".")
-            name = parse_name()
-            return Ctr(type, name)
-
-        # Pattern-match
-        elif match("$"):
-            term = parse_term(context, defs)
-            skip = parse_exact("->")
-            moti = parse_term(Mat.extend_motive_context(context, term), defs)
-            cses = [] 
-            while match("|"):
-                cse_name = parse_name()
-                cse_skip = parse_exact("=>")
-                cse_body = parse_term(Mat.extend_case_context(context, term, cse_name), defs)
-                cses.append((cse_name, cse_body))
-            parse_exact(";")
-            return Mat(term, moti, cses)
-
         # Definition
         elif match("def"):
             name = parse_name()
-            term = parse_term(context, defs)
-            body = parse_term(context, defs.define(name, term))
+            term = parse_term(context)
+            body = parse_term(context.extend((name, Var(0), term)))
             return body
 
         # Variable (Bruijn indexed)
@@ -485,111 +139,417 @@ def string_to_term(code):
             index = parse_name()
             return Var(int(index))
 
-        # Comment
-        elif match("--"):
-            while Cursor.index < len(code) and not match(")"):
-                Cursor.index += 1
-            return parse_term(context, defs)
-
         # Variable (named)
         else:
             name = parse_name()
-            var = context.find(name)
-            if var:
-                return Var(var[0])
-            term = defs.get(name)
-            if term:
-                return term
-            raise(Exception("Unbound variable: '" + str(name) + "' at index " + str(Cursor.index) + "."))
+            bind = context.find(name)
+            if bind:
+                return bind[2]
+            raise(Exception("Unbound variable: '" + str(name) + "' at index " + str(Cursor.index) + "-"))
 
-    return parse_term(Context(), Defs())
+    return parse_term(Context())
+
+class Typ:
+    def __init__(self):
+        pass
+
+    def to_string(self, context):
+        return "Type"
+
+    def shift(self, depth, inc):
+        return Typ()
+
+    def equal(self, other, context):
+        return isinstance(other, Typ)
+
+    def check(self, context):
+        return Typ()
+
+    def eval(self, context):
+        return Typ()
+
+    def erase(self, context):
+        return Typ()
+
+class All:
+    def __init__(self, eras, name, bind, body):
+        self.eras = eras
+        self.name = name
+        self.bind = bind
+        self.body = body
+
+    def to_string(self, context):
+        ex_ctx = context.extend((self.name, self.bind, Var(0)))
+        return "{" + ("-" if self.eras else "") + self.name + " : " + self.bind.to_string(ex_ctx) + "} " + self.body.to_string(ex_ctx)
+
+    def shift(self, depth, inc):
+        return All(self.eras, self.name, self.bind.shift(depth + 1, inc), self.body.shift(depth + 1, inc)) 
+
+    def equal(self, other, context):
+        return isinstance(other, All) and self.bind.equal(other.bind, context) and self.body.equal(other.body, context)
+
+    def check(self, context):
+        ex_ctx = context.extend((self.name, self.bind, Var(0)))
+        bind_t = self.bind.check(ex_ctx)
+        body_t = self.body.check(ex_ctx)
+        if not bind_t.equal(Typ(), context) or not body_t.equal(Typ(), context):
+            raise(Exception("Forall not a type."))
+        return Typ()
+
+    def eval(self, context):
+        ex_ctx = context.extend((self.name, self.bind, Var(0)))
+        bind_v = self.bind.eval(ex_ctx)
+        body_v = self.body.eval(ex_ctx)
+        return All(self.eras, self.name, bind_v, body_v)
+
+    def erase(self, context):
+        if self.eras:
+            return self.body.erase(context.extend(None)).shift(0, -1)
+        else:
+            ex_ctx = context.extend((self.name, self.bind, Var(0)))
+            bind_e = self.bind.erase(ex_ctx)
+            body_e = self.body.erase(ex_ctx)
+            return All(self.eras, self.name, bind_e, body_e)
+
+class Lam: 
+    def __init__(self, eras, name, bind, body):
+        self.eras = eras
+        self.name = name
+        self.bind = bind
+        self.body = body
+
+    def to_string(self, context):
+        ex_ctx = context.extend((self.name, self.bind, Var(0)))
+        return "[" + ("-" if self.eras else "") + self.name + " : " + self.bind.to_string(ex_ctx) + "] " + self.body.to_string(ex_ctx)
+
+    def shift(self, depth, inc):
+        return Lam(self.eras, self.name, self.bind.shift(depth + 1, inc), self.body.shift(depth + 1, inc)) 
+
+    def equal(self, other, context):
+        return isinstance(other, Lam) and self.bind.equal(other.bind, context) and self.body.equal(other.body, context)
+
+    def check(self, context):
+        ex_ctx = context.extend((self.name, self.bind, Var(0)))
+        bind_v = self.bind.eval(ex_ctx)
+        body_t = self.body.check(ex_ctx).eval(ex_ctx)
+        result = All(self.eras, self.name, bind_v, body_t)
+        result.check(context).equal(Typ(), context)
+        return result
+
+    def eval(self, context):
+        ex_ctx = context.extend((self.name, self.bind, Var(0)))
+        bind_v = self.bind.eval(ex_ctx)
+        body_v = self.body.eval(ex_ctx)
+        return Lam(self.eras, self.name, bind_v, body_v)
+
+    def erase(self, context):
+        if self.eras:
+            return self.body.erase(context.extend(None)).shift(0, -1)
+        else:
+            ex_ctx = context.extend((self.name, self.bind, Var(0)))
+            bind_e = self.bind.erase(ex_ctx)
+            body_e = self.body.erase(ex_ctx)
+            return Lam(self.eras, self.name, bind_e, body_e)
+
+class App:
+    def __init__(self, eras, func, argm):
+        self.eras = eras
+        self.func = func
+        self.argm = argm
+
+    def to_string(self, context):
+        return "(" + self.func.to_string(context) + " " + ("-" if self.eras else "") + self.argm.to_string(context) + ")"
+
+    def shift(self, depth, inc):
+        return App(self.eras, self.func.shift(depth, inc), self.argm.shift(depth, inc))
+
+    def equal(self, other, context):
+        return isinstance(other, App) and self.func.equal(other.func, context) and self.argm.equal(other.argm, context)
+
+    def check(self, context):
+        func_t = self.func.check(context)
+        argm_v = self.argm.eval(context)
+        argm_t = self.argm.check(context)
+        if not isinstance(func_t, All):
+            #print func_t.to_string(context)
+            #print "->" + self.to_string(context)
+            raise(Exception("Non-function application."))
+        ex_ctx = context.extend((func_t.name, func_t.bind, argm_v.shift(0, 1)))
+        expect = func_t.bind.eval(ex_ctx).shift(0, -1)
+        actual = argm_t.eval(context)
+        if not expect.equal(actual, context):
+            #print self.to_string(context)
+            raise(Exception("Type mismatch on '" + self.to_string(context) + "' application.\n"
+                + "- Expected : " + expect.to_string(Context()) + "\n"
+                + "- Actual   : " + actual.to_string(Context())))
+        return func_t.body.eval(ex_ctx).shift(0, -1)
+
+    def eval(self, context):
+        func_v = self.func.eval(context)
+        argm_v = self.argm.eval(context)
+        if not isinstance(func_v, Lam):
+            return App(self.eras, func_v, argm_v)
+        ex_ctx = context.extend((func_v.name, func_v.bind, argm_v.shift(0, 1)))
+        return func_v.body.eval(ex_ctx).shift(0, -1)
+
+    def erase(self, context):
+        if self.eras:
+            return self.func.erase(context)
+        else:
+            return App(self.eras, self.func.erase(context), self.argm.erase(context))
+
+class Var:
+    def __init__(self, index):
+        self.index = index
+
+    def to_string(self, context):
+        binder = context.get(self.index)
+        if binder is not None:
+            return binder[0]
+        else:
+            return "#" + str(self.index)
+
+    def shift(self, depth, inc):
+        return Var(self.index if self.index < depth else self.index + inc)
+
+    def equal(self, other, context):
+        return isinstance(other, Var) and self.index == other.index
+
+    def check(self, context):
+        return context.get(self.index)[1].eval(context)
+
+    def eval(self, context):
+        return context.get(self.index)[2]
+
+    def erase(self, context):
+        if context.get(self.index) is None:
+            return Era(Var(self.index))
+            #raise(Exception("Use of erased variable."))
+        else:
+            return context.get(self.index)[2]
+
+# Erased term
+class Era:
+    def __init__(self, term):
+        self.term = term
+
+    def to_string(self, context):
+        return "." + self.term.to_string(context)
+
+    def shift(self, depth, inc):
+        return Era(self.term.shift(depth, inc))
+
+    def equal(self, other, context):
+        return isinstance(other, Era) and self.term.equal(other.term, context)
+
+    def check(self, context):
+        # ctx |- t : A
+        # ------------------
+        # ctx |- E(t) : E(A)
+        return self.term.check(context).erase(Context())
+
+    def eval(self, context):
+        return self.term.eval(context).erase(Context())
+
+    def erase(self, context):
+        return self.term.erase(context)
+
+# The type of a self-dependent intersection
+class Dep: 
+    def __init__(self, name, body):
+        self.name = name
+        self.body = body
+
+    def to_string(self, context):
+        return "@" + self.name + self.body.to_string(context.extend((self.name, self.erase(Context()).shift(0, 1), Var(0))))
+
+    def shift(self, depth, inc):
+        return Dep(self.name, self.body.shift(depth + 1, inc)) 
+
+    def equal(self, other, context):
+        return isinstance(other, Dep) and self.body.equal(other.body, context)
+
+    def check(self, context):
+        # ctx |- E(A) : *     ctx, x : E(A) |- B : *
+        # ------------------------------------------
+        # ctx |- @x.A : *
+        # TODO
+        return Typ()
+
+    def eval(self, context):
+        return Dep(self.name, self.body.eval(context.extend((self.name, self.erase(Context()).shift(0, 1), Var(0)))))
+
+    def erase(self, context):
+        return self.body.erase(context.extend(None)).shift(0, -1)
+
+# Instantiates a value of a self-dependent intersection
+class New: 
+    def __init__(self, type, term):
+        self.type = type
+        self.term = term
+
+    def to_string(self, context):
+        return "#" + self.type.to_string(context) + self.term.to_string(context)
+
+    def shift(self, depth, inc):
+        return New(self.type.shift(depth, inc), self.term.shift(depth, inc)) 
+
+    def equal(self, other, context):
+        return isinstance(other, New) and self.type.equal(other.type, context) and self.term.equal(other.term, context)
+
+    def check(self, context):
+        # ctx |- E(t) : E(A)     ctx |- t : [E(t)/x]A     ctx |- @x. A : *
+        # ----------------------------------------------------------------
+        # ctx |- #x.A t : @x.A
+        type_v = self.type.eval(context)
+        eras_v = self.term.erase(Context())
+        eras_t = eras_v.check(context)
+        eras_T = type_v.erase(Context())
+        term_t = self.term.check(context)
+        term_T = type_v.body.eval(context.extend((type_v.name, eras_t, eras_v)))
+        if not eras_t.equal(eras_T, context) or not term_t.equal(term_T, context):
+            raise(Exception("Type mismatch."))
+        return type_v
+
+    def eval(self, context):
+        return New(self.type.eval(context), self.term.eval(context))
+
+    def erase(self, context):
+        return self.term.erase(context)
+
+# Extracts term from self-dependent intersection
+class Use:
+    def __init__(self, term):
+        self.term = term
+
+    def to_string(self, context):
+        return "~" + self.term.to_string(context)
+
+    def shift(self, depth, inc):
+        return Use(self.term.shift(depth, inc))
+
+    def equal(self, other, context):
+        return isinstance(other, Use) and self.term.equal(other.term, context)
+
+    def check(self, context):
+        # ctx |- t : @x.A
+        # ----------------------------
+        # ctx |- ~t : [E(t)/x]A
+        term_t = self.term.check(context)
+        if not isinstance(term_t, Dep):
+            raise(Exception("Can't use non-Dep."))
+        subs_v = self.term.eval(context).erase(Context())
+        subs_t = term_t.erase(Context())
+        ex_ctx = context.extend((term_t.name, subs_t.shift(0, 1), subs_v.shift(0, 1)))
+        return term_t.body.eval(ex_ctx).shift(0, -1).eval(context)
+
+    def eval(self, context):
+        term_v = self.term.eval(context)
+        if not isinstance(term_v, New):
+            return Use(term_v)
+        subs_v = self.term.eval(context).erase(Context())
+        subs_t = term_v.type.erase(context)
+        ex_ctx = context.extend((term_v.type.name, subs_t.shift(0, 1), subs_v.shift(0, 1)))
+        return term_v.term.eval(ex_ctx).shift(0, -1)
+
+    def erase(self, context):
+        return self.term.erase(context)
+
+class Pro:
+    def __init__(self, type, term):
+        self.type = type
+        self.term = term
+
+    def to_string(self, context):
+        return "^" + self.type.to_string(context) + " " + self.term.to_string(context)
+
+    def shift(self, depth, inc):
+        return Pro(self.type.shift(depth, inc), self.term.shift(depth, inc))
+
+    def equal(self, other, context):
+        return self.term.erase(Context()).equal(other.erase(Context()), context)
+
+    def check(self, context):
+        # ctx |- t : E(A)     ctx |- @x.A : *
+        # -----------------------------------
+        # ctx |- ^x.A t : @x.A
+        actual = self.term.check(context)
+        expect = self.type.erase(Context())
+        if not expect.equal(actual, context):
+            raise(Exception("Type mismatch on promotion."))
+        return self.type
+
+    def eval(self, context):
+        type_v = self.type.eval(context)
+        term_v = self.term.eval(context)
+        if not isinstance(term_v, Era):
+            return Pro(type_v, term_v)
+        return term_v.term
+
+    def erase(self, context):
+        return self.term.erase(context)
 
 test = """
-    def CNat
-        {P : Type} {S : {n : P} P} {Z : P} P
+    def CNat          {P : Type} {S : {n : P} P} {Z : P} P
+    def c0            [P : Type] [S : {n : P} P] [Z : P] Z
+    def cS [n : CNat] [P : Type] [S : {n : P} P] [Z : P] (S (n P S Z))
 
-    def c0 [P : Type] [S : {n : P} P] [Z : P]
-        Z
+    def c1 [P : Type] [S : {n : P} P] [Z : P] (S Z)
+    def c2 [P : Type] [S : {n : P} P] [Z : P] (S (S Z))
+    def c3 [P : Type] [S : {n : P} P] [Z : P] (S (S (S Z)))
 
-    def c1 [P : Type] [S : {n : P} P] [Z : P]
-        (S Z)
+    def add [a : CNat] [b : CNat] [P : Type] [S : {x : P} P] [Z : P] (a P S (b P S Z))
+    def mul [a : CNat] [b : CNat] [P : Type] [S : {x : P} P] [Z : P] (a P (b P S) Z)
 
-    def c2 [P : Type] [S : {n : P} P] [Z : P]
-        (S (S Z))
+    def the [P : Type] [x : P] x
 
-    def c3 [P : Type] [S : {n : P} P] [Z : P]
-        (S (S (S Z)))
+    -- Church boolean
+    def CBool {P : Type} {T : P} {F : P} P
+    def CTrue [P : Type] [T : P] [F : P] T
+    def CFals [P : Type] [T : P] [F : P] F
 
-    def add [a : CNat] [b : CNat] [P : Type] [S : {x : P} P] [Z : P]
-        (a P S (b P S Z))
+    def test [P : {-b : CBool} Type] [T : (P -CTrue)] [F : (P -CFals)] T
 
-    def mul [a : CNat] [b : CNat] [P : Type] [S : {x : P} P]
-        (a P (b P S))
+    -- Bool as a self-dependent intersection of an annotated CBool with its erasure
+    def Bool @self {P : {-b : CBool} Type} {T : (P -CTrue)} {F : (P -CFals)} (P -self)
+    def True #Bool [P : {-b : CBool} Type] [T : (P -CTrue)] [F : (P -CFals)] T
+    def Fals #Bool [P : {-b : CBool} Type] [T : (P -CTrue)] [F : (P -CFals)] F
 
-    def Nat
-        < Nat  : Type
-        | succ : {pred : Nat} Nat
-        | zero : Nat >
+    -- Induction principle on Bool
+    def Elim {b : Bool} {P : {x : Bool} Type} {T : (P True)} {F : (P Fals)} (P b)
+    def elim [b : Bool] [P : {x : Bool} Type] [T : (P True)] [F : (P Fals)] (~b [-x : CBool](P (^Bool x)) T F)
 
-    def succ
-        @Nat.succ
+    -- Church Nat
+    def CNat            {P : Type} {S : {x : P} P} {Z : P} P
+    def CSuc [n : CNat] [P : Type] [S : {x : P} P] [Z : P] (S (n P S Z))
+    def CZer            [P : Type] [S : {x : P} P] [Z : P] Z
 
-    def zero
-        @Nat.zero
+    -- Nat as a self-dependent intersection of an annotated Nat with its erasure
+    def Nat           @self {P : {-b : CNat} Type} {S : {-n : CNat} {p : (P -n   )} (P -(CSuc n   ))} {Z : (P -CZer)} (P -self)
+    def Suc [n : Nat]  #Nat [P : {-b : CNat} Type] [S : {-n : CNat} {p : (P -n   )} (P -(CSuc n   ))] [Z : (P -CZer)] (S -.n (~n P S Z))
+    def Zer            #Nat [P : {-b : CNat} Type] [S : {-n : CNat} {p : (P -n   )} (P -(CSuc n   ))] [Z : (P -CZer)] Z
 
-    def pred [n : Nat]
-        $ n    -> Nat
-        | succ => pred
-        | zero => zero ;
+    -- Induction principle on Nat
+    def Induction {n : Nat} {P : {x : Nat} Type} {S : {-n : Nat} {p : (P n)} (P (Suc n))} {Z : (P Zer)} (P n)
+    def induction [n : Nat] [P : {x : Nat} Type] [S : {-n : Nat} {p : (P n)} (P (Suc n))] [Z : (P Zer)] (~n [-x : CNat](P (^Nat x)) [-n : CNat][p : (P ^Nat n)](S -^Nat n p) Z)
 
-    def Bool
-        < Bool  : Type
-        | true  : Bool
-        | false : Bool >
-
-    def true
-        @Bool.true
-
-    def false
-        @Bool.false
-    
-    def bool-elim [b : Bool] [P : {x : Bool} Type] [T : (P @Bool.true)] [F : (P @Bool.false)]
-        $ b     -> (P self)
-        | true  => T
-        | false => F ;
-
-    def Pair [A : Type] [B : Type]
-        < Pair : Type
-        | new  : {a : A} {b : B} Pair >
-
-    def fst [A : Type] [B : Type] [pair : (Pair A B)]
-        $ pair -> A
-        | new  => a ;
-
-    def snd [A : Type] [B : Type] [pair : (Pair A B)]
-        $ pair -> B
-        | new  => b ;
-
-    def test-mul (mul c3 c3)
-    def test-pair (@(Pair Bool Nat).new true @Nat.zero)
-    def test-fst (fst Bool Nat test-pair)
-    def test-snd (snd Bool Nat test-pair)
-    def test-pred (pred (@Nat.succ (@Nat.succ (@Nat.succ @Nat.zero))))
-    def test-elim bool-elim
-
-    test-pair
+    -- Checks it
+    (the Induction induction)
 """
 
-term = string_to_term(test)
+def foo():
+    term = string_to_term(test)
 
-print "Input term:"
-print term.to_string(Context())
-print ""
+    print "Input term:"
+    print term.to_string(Context())
+    print ""
 
-print "Normal form:"
-print term.eval(Context()).to_string(Context())
-print ""
+    print "Normal form:"
+    print term.eval(Context()).to_string(Context())
+    print ""
 
-print "Inferred type:"
-print term.check(Context()).to_string(Context())
-print ""
+    print "Inferred type:"
+    print term.check(Context()).to_string(Context())
+    print ""
+
+foo()
