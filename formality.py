@@ -53,17 +53,17 @@ class Typ:
     def equal(self, other):
         return isinstance(other, Typ)
 
-    def infer(self, context):
-        return Typ()
-
-    def refine(self, context):
-        return Typ()
-
     def get_call_expr(self):
         return (self, [])
 
     def get_binders(self):
         return []
+
+    def check(self, context):
+        return Typ()
+
+    def eval(self, context):
+        return Typ()
 
 class All:
     def __init__(self, name, bind, body):
@@ -83,23 +83,23 @@ class All:
     def equal(self, other):
         return isinstance(other, All) and self.bind.equal(other.bind) and self.body.equal(other.body)
 
-    def infer(self, context):
-        bind_t = self.bind.infer(context)
-        body_t = self.body.infer(context.extend((self.name, self.bind, None)))
-        if not bind_t.equal(Typ()) or not body_t.equal(Typ()):
-            raise(Exception("Forall not a type."))
-        return Typ()
-
-    def refine(self, context):
-        bind_v = self.bind.refine(context)
-        body_v = self.body.refine(context.extend((self.name, self.bind, None)))
-        return All(self.name, bind_v, body_v)
-
     def get_call_expr(self):
         return (self, [])
 
     def get_binders(self):
         return [(self.name, self.bind)] + self.body.get_binders()
+
+    def check(self, context):
+        bind_t = self.bind.check(context)
+        body_t = self.body.check(context.extend((self.name, self.bind, None)))
+        if not bind_t.equal(Typ()) or not body_t.equal(Typ()):
+            raise(Exception("Forall not a type."))
+        return Typ()
+
+    def eval(self, context):
+        bind_v = self.bind.eval(context)
+        body_v = self.body.eval(context.extend((self.name, self.bind, None)))
+        return All(self.name, bind_v, body_v)
 
 class Lam: 
     def __init__(self, name, bind, body):
@@ -116,23 +116,23 @@ class Lam:
     def equal(self, other):
         return isinstance(other, Lam) and self.bind.equal(other.bind) and self.body.equal(other.body)
 
-    def infer(self, context):
-        bind_v = self.bind.refine(context)
-        body_t = self.body.infer(context.extend((self.name, self.bind, None)))
-        result = All(self.name, bind_v, body_t)
-        result.infer(context).equal(Typ())
-        return result
-
-    def refine(self, context):
-        bind_v = self.bind.refine(context)
-        body_v = self.body.refine(context.extend((self.name, self.bind, None)))
-        return Lam(self.name, bind_v, body_v)
-
     def get_call_expr(self):
         return (self, [])
 
     def get_binders(self):
         return [(self.name, self.bind)] + self.body.get_binders()
+
+    def check(self, context):
+        bind_v = self.bind.eval(context)
+        body_t = self.body.check(context.extend((self.name, self.bind, None)))
+        result = All(self.name, bind_v, body_t)
+        result.check(context).equal(Typ())
+        return result.eval(context)
+
+    def eval(self, context):
+        bind_v = self.bind.eval(context)
+        body_v = self.body.eval(context.extend((self.name, self.bind, None)))
+        return Lam(self.name, bind_v, body_v)
 
 class App:
     def __init__(self, func, argm):
@@ -152,31 +152,33 @@ class App:
     def equal(self, other):
         return isinstance(other, App) and self.func.equal(other.func) and self.argm.equal(other.argm)
 
-    def infer(self, context):
-        func_t = self.func.infer(context)
-        argm_v = self.argm.refine(context)
-        argm_t = self.argm.infer(context)
-        if not isinstance(func_t, All):
-            raise(Exception("Non-function application."))
-        elif not func_t.bind.refine(context).equal(argm_t.refine(context)):
-            raise(Exception("Type mismatch."))
-        else:
-            return func_t.body.refine(context.extend((func_t.name, func_t.bind, argm_v)).shift(0, -1))
-
-    def refine(self, context):
-        func_v = self.func.refine(context)
-        argm_v = self.argm.refine(context)
-        if isinstance(func_v, Lam):
-            return func_v.body.refine(context.extend((func_v.name, func_v.bind, argm_v)).shift(0, -1))
-        else:
-            return App(func_v, argm_v)
-
     def get_call_expr(self):
         (func, argms) = self.func.get_call_expr()
         return (func, argms + [self.argm])
 
     def get_binders(self):
         return []
+
+    def check(self, context):
+        func_t = self.func.check(context)
+        argm_v = self.argm.eval(context)
+        argm_t = self.argm.check(context)
+        if not isinstance(func_t, All):
+            raise(Exception("Non-function application."))
+        elif not func_t.bind.eval(context).equal(argm_t.eval(context)):
+            raise(Exception("Type mismatch on '" + self.to_string(context) + "' application.\n"
+                + "- Expected : " + func_t.bind.eval(context).to_string(context) + "\n"
+                + "- Actual   : " + argm_t.eval(context).to_string(context)))
+        else:
+            return func_t.body.eval(context.extend((func_t.name, func_t.bind, argm_v)).shift(0, -1))
+
+    def eval(self, context):
+        func_v = self.func.eval(context)
+        argm_v = self.argm.eval(context)
+        if isinstance(func_v, Lam):
+            return func_v.body.eval(context.extend((func_v.name, func_v.bind, argm_v)).shift(0, -1))
+        else:
+            return App(func_v, argm_v)
 
 class Var:
     def __init__(self, index):
@@ -199,17 +201,17 @@ class Var:
     def equal(self, other):
         return isinstance(other, Var) and self.index == other.index
 
-    def infer(self, context):
-        return context.get(self.index)[1]
-
-    def refine(self, context):
-        return context.get(self.index)[2]
-
     def get_call_expr(self):
         return (self, [])
 
     def get_binders(self):
         return []
+
+    def check(self, context):
+        return context.get(self.index)[1].eval(context)
+
+    def eval(self, context):
+        return context.get(self.index)[2]
 
 class Idt:
     def __init__(self, name, type, ctrs):
@@ -218,25 +220,16 @@ class Idt:
         self.ctrs = ctrs # [(string, term)]
 
     def to_string(self, context):
-        #result = "$ " + self.name + " : " + self.type.to_string(context)
-        #for (i, (name, type)) in enumerate(self.ctrs):
-            #result += " | " + name + " : " + type.to_string(context.extend((self.name, self.type, Var(0)))) + ";"
-        #return result
-        return self.name
+        result = "<" + self.name + " : " + self.type.to_string(context)
+        for (i, (name, type)) in enumerate(self.ctrs):
+            result += " | " + name + " : " + type.to_string(context.extend((self.name, self.type, Var(0))))
+        return result + ">"
 
     def shift(self, depth, inc):
         return Idt(self.name, self.type.shift(depth, inc), [(name, type.shift(depth + 1, inc)) for (name, type) in self.ctrs])
 
     def equal(self, other):
         return isinstance(other, Idt) and self.type.equal(other.type) and all([a[1].equal(b[1]) for (a,b) in zip(self.ctrs, other.ctrs)])
-
-    def infer(self, context):
-        return self.type
-
-    def refine(self, context):
-        type = self.type.refine(context)
-        ctrs = map(lambda (name, type): (name, type.refine(context.extend((self.name, self.type, None)))), self.ctrs)
-        return Idt(self.name, type, ctrs) 
 
     def get_call_expr(self):
         return (self, [])
@@ -247,7 +240,15 @@ class Idt:
     def get_ctr_type(self, context, name):
         for (ctr_name, ctr_type) in self.ctrs:
             if ctr_name == name:
-                return ctr_type.refine(context.extend((self.name, self.type, self)).shift(0, -1))
+                return ctr_type.eval(context.extend((self.name, self.type, self)).shift(0, -1))
+
+    def check(self, context):
+        return self.type.eval(context)
+
+    def eval(self, context):
+        type = self.type.eval(context)
+        ctrs = map(lambda (name, type): (name, type.eval(context.extend((self.name, self.type, None)))), self.ctrs)
+        return Idt(self.name, type, ctrs) 
 
 class Ctr:
     def __init__(self, type, name):
@@ -263,17 +264,17 @@ class Ctr:
     def equal(self, other):
         return isinstance(other, Ctr) and self.type.equal(other.type) and self.name == other.name
 
-    def refine(self, context):
-        return Ctr(self.type.refine(context), self.name)
-
-    def infer(self, context):
-        return self.type.get_ctr_type(context, self.name)
-
     def get_call_expr(self):
         return (self, [])
 
     def get_binders(self):
         return []
+
+    def eval(self, context):
+        return Ctr(self.type.eval(context), self.name)
+
+    def check(self, context):
+        return self.type.eval(context).get_ctr_type(context, self.name)
 
 class Mat:
     def __init__(self, term, moti, cses):
@@ -283,7 +284,7 @@ class Mat:
 
     @staticmethod
     def extend_motive_context(context, term):
-        term_t = term.infer(context)
+        term_t = term.check(context)
         (datatype, indices) = term_t.get_call_expr()
         for (i, ((name, type), value)) in enumerate(zip(datatype.type.get_binders(), indices)):
             context = context.extend((name, type, value.shift(0, i)))
@@ -292,21 +293,21 @@ class Mat:
 
     @staticmethod
     def extend_case_context(context, term, case_name):
-        term_t = term.infer(context)
-        datatype = term.infer(context).get_call_expr()[0]
+        term_t = term.check(context)
+        datatype = term.check(context).get_call_expr()[0]
         case_type = datatype.get_ctr_type(context, case_name)
         for (field_name, field_type) in case_type.get_binders():
             context = context.extend((field_name, field_type, None))
         return context
 
     def to_string(self, context):
-        result = "% " + self.term.to_string(context) + " -> " + self.moti.to_string(Mat.extend_motive_context(context, self.term))
+        result = "$ " + self.term.to_string(context) + " -> " + self.moti.to_string(Mat.extend_motive_context(context, self.term))
         for (i, (case_name, case_body)) in enumerate(self.cses):
             result += " | " + case_name + " => " + case_body.to_string(Mat.extend_case_context(context, self.term, case_name))
         return result+" ;"
 
     def shift(self, depth, inc):
-        datatype = term.infer(context).get_call_expr()[0]
+        datatype = term.check(context).get_call_expr()[0]
         term = self.term.shift(depth, inc)
         moti = self.moti.shift(depth, inc)
         cses = [(name, body.shift(depth + len(get_ctr_type(context, case_name).get_binders()), inc)) for (name, body) in self.cses]
@@ -320,22 +321,22 @@ class Mat:
             return term_e and moti_e and cses_e
         return False
 
-    def refine(self, context):
-        term = self.term.refine(context)
-        moti = self.moti.refine(Mat.extend_motive_context(context, self.term))
-        cses = [(name, case.refine(Mat.extend_case_context(context, self.term, name))) for (name, case) in self.cses]
-        (func, argms) = term.refine(context).get_call_expr()
+    def eval(self, context):
+        term = self.term.eval(context)
+        moti = self.moti.eval(Mat.extend_motive_context(context, self.term))
+        cses = [(name, case.eval(Mat.extend_case_context(context, self.term, name))) for (name, case) in self.cses]
+        (func, argms) = term.eval(context).get_call_expr()
         if isinstance(func, Ctr):
             for (name, body) in self.cses:
                 if name == func.name:
                     new_context = context
                     for (i, argm) in enumerate(argms):
                         new_context = new_context.extend((None, None, argm.shift(0, len(argms) - i - 1)))
-                    return body.refine(new_context)
+                    return body.eval(new_context)
         return Mat(term, moti, cses)
 
-    def infer(self, context):
-        term_t = self.term.infer(context)
+    def check(self, context):
+        term_t = self.term.check(context)
         (datatype, index_values) = term_t.get_call_expr()
         motive_depth = len(index_values) + 1
 
@@ -344,19 +345,19 @@ class Mat:
             case_ctr_type = datatype.get_ctr_type(context, case_name)
             case_field_count = len(case_ctr_type.get_binders())
 
-            witness = Ctr(datatype, case_name)
+            witness = Ctr(datatype.shift(0, case_field_count), case_name)
             for i in xrange(case_field_count):
                 witness = App(witness, Var(case_field_count - i - 1))
 
-            case_expect_type = self.moti.refine(Mat.extend_motive_context(case_context, witness)).shift(0, -motive_depth)
-            case_actual_type = case_body.infer(case_context)
+            case_expect_type = self.moti.shift(0, case_field_count).eval(Mat.extend_motive_context(case_context, witness)).shift(0, -motive_depth)
+            case_actual_type = case_body.check(case_context)
 
             if not case_actual_type.equal(case_expect_type):
                 raise(Exception("Type mismatch on '" + case_name + "' case.\n"
                     + "- Expected : " + case_expect_type.to_string(case_context) + "\n"
                     + "- Actual   : " + case_actual_type.to_string(case_context)))
 
-        return self.moti.refine(Mat.extend_motive_context(context, self.term)).shift(0, -motive_depth)
+        return self.moti.eval(Mat.extend_motive_context(context, self.term)).shift(0, -motive_depth)
 
     def get_call_expr(self):
         return []
@@ -407,7 +408,7 @@ def string_to_term(code):
         
     def parse_term(context, defs):
         # IDT
-        if match("$"):
+        if match("<"):
             name = parse_name()
             skip = parse_exact(":")
             type = parse_term(context, defs)
@@ -417,7 +418,7 @@ def string_to_term(code):
                 ctr_skip = parse_exact(":")
                 ctr_type = parse_term(context.extend((name, type, None)), defs)
                 ctrs.append((ctr_name, ctr_type))
-            parse_exact(";")
+            parse_exact(">")
             return Idt(name, type, ctrs)
 
         # Application
@@ -459,7 +460,7 @@ def string_to_term(code):
             return Ctr(type, name)
 
         # Pattern-match
-        elif match("%"):
+        elif match("$"):
             term = parse_term(context, defs)
             skip = parse_exact("->")
             moti = parse_term(Mat.extend_motive_context(context, term), defs)
@@ -526,9 +527,9 @@ test = """
         (a P (b P S))
 
     def Nat
-        $ Nat  : Type
+        < Nat  : Type
         | succ : {pred : Nat} Nat
-        | zero : Nat ;
+        | zero : Nat >
 
     def succ
         @Nat.succ
@@ -537,14 +538,14 @@ test = """
         @Nat.zero
 
     def pred [n : Nat]
-        % n    -> Nat
+        $ n    -> Nat
         | succ => pred
         | zero => zero ;
 
     def Bool
-        $ Bool  : Type
+        < Bool  : Type
         | true  : Bool
-        | false : Bool ;
+        | false : Bool >
 
     def true
         @Bool.true
@@ -553,30 +554,30 @@ test = """
         @Bool.false
     
     def bool-elim [b : Bool] [P : {x : Bool} Type] [T : (P @Bool.true)] [F : (P @Bool.false)]
-        % b     -> (P self)
+        $ b     -> (P self)
         | true  => T
         | false => F ;
 
-    def Pair
-        $ Pair : {A : Type} {B : Type} Type
-        | new  : {A : Type} {B : Type} {a : A} {b : B} (Pair A B) ;
+    def Pair [A : Type] [B : Type]
+        < Pair : Type
+        | new  : {a : A} {b : B} Pair >
 
     def fst [A : Type] [B : Type] [pair : (Pair A B)]
-        % pair -> A
+        $ pair -> A
         | new  => a ;
 
     def snd [A : Type] [B : Type] [pair : (Pair A B)]
-        % pair -> B
+        $ pair -> B
         | new  => b ;
 
     def test-mul (mul c3 c3)
-    def test-pair (@Pair.new Bool Nat true @Nat.zero)
+    def test-pair (@(Pair Bool Nat).new true @Nat.zero)
     def test-fst (fst Bool Nat test-pair)
     def test-snd (snd Bool Nat test-pair)
     def test-pred (pred (@Nat.succ (@Nat.succ (@Nat.succ @Nat.zero))))
     def test-elim bool-elim
 
-    test-fst
+    test-pair
 """
 
 term = string_to_term(test)
@@ -586,9 +587,9 @@ print term.to_string(Context())
 print ""
 
 print "Normal form:"
-print term.refine(Context()).to_string(Context())
+print term.eval(Context()).to_string(Context())
 print ""
 
 print "Inferred type:"
-print term.infer(Context()).to_string(Context())
+print term.check(Context()).to_string(Context())
 print ""
