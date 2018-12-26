@@ -1,32 +1,44 @@
-from nasic import *
-from list import *
-
 class Context:
-    def __init__(self, list = List()):
+    def __init__(self, list = []):
         self.list = list
 
     def shift(self, depth, inc):
-        return Context(self.list.map(lambda (name, type, value): (name, type.shift(depth, inc), value.shift(depth, inc))))
+        return Context(map(lambda (name, type, value): (name, type.shift(depth, inc), value.shift(depth, inc)), self.list))
 
     def extend(self, (name, type, term)):
-        shifted_type = type.shift(0, 1) if type is not None else Var(0)
-        shifted_term = term.shift(0, 1) if term is not None else Var(0)
-        return Context(self.shift(0, 1).list.prepend((name, shifted_type, shifted_term)))
+        shifted = lambda term: term.shift(0, 1) if term is not None else Var(0)
+        return Context([(name, shifted(type), shifted(term))] + self.shift(0, 1).list)
 
     def get(self, index):
-        return self.list.get(index)
+        return self.list[index] if index < len(self.list) else None
 
-    def to_scope(self):
-        return self.list.map(lambda (name, type, value): name)
-
-    def find(self, func):
-        return self.list.find(func)
+    def find(self, name):
+        skip = 0
+        while name[-1] == "'":
+            name = name[:-1]
+            skip += 1
+        for i in xrange(len(self.list)):
+            if self.list[i][0] == name:
+                if skip > 0:
+                    skip -= 1
+                else:
+                    return (i, self.list[i])
+        return None
 
     def len(self):
-        return self.list.len()
+        return len(self.list)
 
-    def map(self, func):
-        return self.list.map(func)
+class Defs:
+    def __init__(self, dict = {}):
+        self.dict = dict
+
+    def define(self, key, val):
+        dict = self.dict.copy()
+        dict[key] = val
+        return Defs(dict)
+
+    def get(self, key):
+        return self.dict[key] if key in self.dict else None
 
 class Typ:
     def __init__(self):
@@ -101,9 +113,6 @@ class Lam:
     def shift(self, depth, inc):
         return Lam(self.name, self.bind.shift(depth, inc), self.body.shift(depth + 1, inc)) 
 
-    #def subst(self, depth, val):
-        #return All(self.name, self.bind.subst(depth, inc), self.body.subst(depth + 1, inc))
-
     def equal(self, other):
         return isinstance(other, Lam) and self.bind.equal(other.bind) and self.body.equal(other.body)
 
@@ -131,7 +140,11 @@ class App:
         self.argm = argm
 
     def to_string(self, context):
-        return "(" + self.func.to_string(context) + " " + self.argm.to_string(context) + ")" 
+        (func, argms) = self.get_call_expr()
+        result = "(" + func.to_string(context)
+        for argm in argms:
+            result += " " + argm.to_string(context)
+        return result + ")"
 
     def shift(self, depth, inc):
         return App(self.func.shift(depth, inc), self.argm.shift(depth, inc))
@@ -170,9 +183,13 @@ class Var:
         self.index = index
 
     def to_string(self, context):
-        maybe_name = context.get(self.index)
-        if maybe_name is not None:
-            return maybe_name[0] # + "#" + str(self.index)
+        binder = context.get(self.index)
+        if binder is not None:
+            name = binder[0]
+            for i in xrange(self.index):
+                if filter(lambda c: c != "'", context.list[i][0]) == binder[0]:
+                    name += "'"
+            return name
         else:
             return "#" + str(self.index)
 
@@ -201,6 +218,10 @@ class Idt:
         self.ctrs = ctrs # [(string, term)]
 
     def to_string(self, context):
+        #result = "$ " + self.name + " : " + self.type.to_string(context)
+        #for (i, (name, type)) in enumerate(self.ctrs):
+            #result += " | " + name + " : " + type.to_string(context.extend((self.name, self.type, Var(0)))) + ";"
+        #return result
         return self.name
 
     def shift(self, depth, inc):
@@ -234,13 +255,13 @@ class Ctr:
         self.name = name
 
     def to_string(self, context):
-        return "@" + self.type.to_string(context) + " " + self.name
+        return "@" + self.type.to_string(context) + "." + self.name
 
     def shift(self, depth, inc):
         return Ctr(self.type.shift(depth, inc), self.name)
 
     def equal(self, other):
-        return isinstance(other, Ctr) and self.type.equal(other.type)
+        return isinstance(other, Ctr) and self.type.equal(other.type) and self.name == other.name
 
     def refine(self, context):
         return Ctr(self.type.refine(context), self.name)
@@ -279,13 +300,17 @@ class Mat:
         return context
 
     def to_string(self, context):
-        result = "(% " + self.term.to_string(context) + " -> " + self.moti.to_string(Mat.extend_motive_context(context, self.term))
+        result = "% " + self.term.to_string(context) + " -> " + self.moti.to_string(Mat.extend_motive_context(context, self.term))
         for (i, (case_name, case_body)) in enumerate(self.cses):
             result += " | " + case_name + " => " + case_body.to_string(Mat.extend_case_context(context, self.term, case_name))
-        return result+")"
+        return result+" ;"
 
     def shift(self, depth, inc):
-        pass
+        datatype = term.infer(context).get_call_expr()[0]
+        term = self.term.shift(depth, inc)
+        moti = self.moti.shift(depth, inc)
+        cses = [(name, body.shift(depth + len(get_ctr_type(context, case_name).get_binders()), inc)) for (name, body) in self.cses]
+        return Mat(term, moti, cses)
 
     def equal(self, other):
         if isinstance(other, Mat):
@@ -312,9 +337,7 @@ class Mat:
     def infer(self, context):
         term_t = self.term.infer(context)
         (datatype, index_values) = term_t.get_call_expr()
-        index_names = map(lambda (name,type): name, datatype.type.get_binders())
-        index_types = map(lambda (name,type): type, datatype.type.get_binders())
-        motive_depth = len(index_names) + 1
+        motive_depth = len(index_values) + 1
 
         for (case_name, case_body) in self.cses:
             case_context = Mat.extend_case_context(context, self.term, case_name)
@@ -346,14 +369,15 @@ def string_to_term(code):
         index = 0
 
     def is_space(char):
-        return char == ' ' or char == '\t'
+        return char == ' ' or char == '\t' or char == '\n'
 
     def is_name_char(char):
-        return (  char >= b'a' and char <= b'z'
-               or char >= b'A' and char <= b'Z'
-               or char >= b'0' and char <= b'9'
-               or char == b'_'
-               or char == b'-')
+        return (  char >= 'a' and char <= 'z'
+               or char >= 'A' and char <= 'Z'
+               or char >= '0' and char <= '9'
+               or char == "'"
+               or char == '_'
+               or char == '-')
 
     def skip_spaces():
         while Cursor.index < len(code) and is_space(code[Cursor.index]):
@@ -381,25 +405,26 @@ def string_to_term(code):
             Cursor.index += 1
         return name
         
-    def parse_term(context):
+    def parse_term(context, defs):
         # IDT
         if match("$"):
             name = parse_name()
             skip = parse_exact(":")
-            type = parse_term(context)
+            type = parse_term(context, defs)
             ctrs = []
             while match("|"):
                 ctr_name = parse_name()
                 ctr_skip = parse_exact(":")
-                ctr_type = parse_term(context.extend((name, type, None)))
+                ctr_type = parse_term(context.extend((name, type, None)), defs)
                 ctrs.append((ctr_name, ctr_type))
+            parse_exact(";")
             return Idt(name, type, ctrs)
 
         # Application
         elif match("("):
-            func = parse_term(context)
+            func = parse_term(context, defs)
             while Cursor.index < len(code) and not match(")"):
-                argm = parse_term(context)
+                argm = parse_term(context, defs)
                 func = App(func, argm)
                 skip_spaces()
             return func
@@ -408,18 +433,18 @@ def string_to_term(code):
         elif match("{"):
             name = parse_name()
             skip = parse_exact(":")
-            bind = parse_term(context)
+            bind = parse_term(context, defs)
             skip = parse_exact("}")
-            body = parse_term(context.extend((name, bind, None)))
+            body = parse_term(context.extend((name, bind, None)), defs)
             return All(name, bind, body)
 
         # Lambda
         elif match("["):
             name = parse_name()
             skip = parse_exact(":")
-            bind = parse_term(context)
+            bind = parse_term(context, defs)
             skip = parse_exact("]")
-            body = parse_term(context.extend((name, bind, None)))
+            body = parse_term(context.extend((name, bind, None)), defs)
             return Lam(name, bind, body)
 
         # Type
@@ -428,70 +453,133 @@ def string_to_term(code):
 
         # Constructor
         elif match("@"):
-            type = parse_term(context)
+            type = parse_term(context, defs)
+            skip = parse_exact(".")
             name = parse_name()
             return Ctr(type, name)
 
         # Pattern-match
         elif match("%"):
-            term = parse_term(context)
+            term = parse_term(context, defs)
             skip = parse_exact("->")
-            moti = parse_term(Mat.extend_motive_context(context, term))
+            moti = parse_term(Mat.extend_motive_context(context, term), defs)
             cses = [] 
-            #if not isinstance(ttyp, Idt):
-                #raise(Exception("Matched value " + term.to_string(context) + " is not a datatype."))
             while match("|"):
                 cse_name = parse_name()
                 cse_skip = parse_exact("=>")
-                cse_body = parse_term(Mat.extend_case_context(context, term, cse_name))
+                cse_body = parse_term(Mat.extend_case_context(context, term, cse_name), defs)
                 cses.append((cse_name, cse_body))
+            parse_exact(";")
             return Mat(term, moti, cses)
+
+        # Definition
+        elif match("def"):
+            name = parse_name()
+            term = parse_term(context, defs)
+            body = parse_term(context, defs.define(name, term))
+            return body
 
         # Variable (Bruijn indexed)
         elif match("#"):
             index = parse_name()
             return Var(int(index))
 
+        # Comment
+        elif match("--"):
+            while Cursor.index < len(code) and not match(")"):
+                Cursor.index += 1
+            return parse_term(context, defs)
+
         # Variable (named)
         else:
             name = parse_name()
-            found = context.find(lambda (n,t,v): n == name)
-            if not found:
-                raise(Exception("Unbound variable: '" + str(name) + "' at index " + str(Cursor.index) + "."))
-            return Var(found[0])
+            var = context.find(name)
+            if var:
+                return Var(var[0])
+            term = defs.get(name)
+            if term:
+                return term
+            raise(Exception("Unbound variable: '" + str(name) + "' at index " + str(Cursor.index) + "."))
 
-    return parse_term(Context())
+    return parse_term(Context(), Defs())
 
+test = """
+    def CNat
+        {P : Type} {S : {n : P} P} {Z : P} P
 
-nat= "{P : Type} {S : {n : P} P} {Z : P} P"
-n0 = "[P : Type] [S : {n : P} P] [Z : P] Z"
-n1 = "[P : Type] [S : {n : P} P] [Z : P] (S Z)"
-n2 = "[P : Type] [S : {n : P} P] [Z : P] (S (S Z))"
-n3 = "[P : Type] [S : {n : P} P] [Z : P] (S (S (S Z)))"
-add = "[a : "+nat+"] [b : "+nat+"] [P : Type] [S : {x : P} P] [Z : P] (a P S (b P S Z))"
-mul = "[a : "+nat+"] [b : "+nat+"] [P : Type] [S : {x : P} P] (a P (b P S))"
-cbool = "{P : Type} {T : P} {F : P} P"
-ctrue = "[P : Type] [T : P] [F : P] T"
-cfals = "[P : Type] [T : P] [F : P] F"
+    def c0 [P : Type] [S : {n : P} P] [Z : P]
+        Z
 
-Nat = "($ Nat : Type | succ : {x : Nat} Nat | zero : Nat)"
-succ = "(@"+Nat+" succ)"
-zero = "(@"+Nat+" zero)"
+    def c1 [P : Type] [S : {n : P} P] [Z : P]
+        (S Z)
 
-Bool = "($ Bool : Type | true : Bool | fals : Bool)"
-fals = "(@"+Bool+" fals)"
-true = "(@"+Bool+" true)"
-Bool_elim = "[b : "+Bool+"] [P : {x : "+Bool+"} Type] [T : (P (@ "+Bool+" true))] [F : (P (@ "+Bool+" fals))] (% b -> (P self) | true => T | fals => F)"
+    def c2 [P : Type] [S : {n : P} P] [Z : P]
+        (S (S Z))
 
-Pair = "($ Pair : {A : Type} {B : Type} Type | new : {A : Type} {B : Type} {a : A} {b : B} (Pair A B))"
-new = "(@"+Pair+" new)"
-pair = "("+new+" "+Bool+" "+Nat+" "+true+" "+zero+")"
+    def c3 [P : Type] [S : {n : P} P] [Z : P]
+        (S (S (S Z)))
 
-main = Bool_elim
-main = "("+mul+" "+n3+" "+n3+")"
-main = "(% "+pair+" -> Type | new => A)"
+    def add [a : CNat] [b : CNat] [P : Type] [S : {x : P} P] [Z : P]
+        (a P S (b P S Z))
 
-term = string_to_term(main)
+    def mul [a : CNat] [b : CNat] [P : Type] [S : {x : P} P]
+        (a P (b P S))
+
+    def Nat
+        $ Nat  : Type
+        | succ : {pred : Nat} Nat
+        | zero : Nat ;
+
+    def succ
+        @Nat.succ
+
+    def zero
+        @Nat.zero
+
+    def pred [n : Nat]
+        % n    -> Nat
+        | succ => pred
+        | zero => zero ;
+
+    def Bool
+        $ Bool  : Type
+        | true  : Bool
+        | false : Bool ;
+
+    def true
+        @Bool.true
+
+    def false
+        @Bool.false
+    
+    def bool-elim [b : Bool] [P : {x : Bool} Type] [T : (P @Bool.true)] [F : (P @Bool.false)]
+        % b     -> (P self)
+        | true  => T
+        | false => F ;
+
+    def Pair
+        $ Pair : {A : Type} {B : Type} Type
+        | new  : {A : Type} {B : Type} {a : A} {b : B} (Pair A B) ;
+
+    def fst [A : Type] [B : Type] [pair : (Pair A B)]
+        % pair -> A
+        | new  => a ;
+
+    def snd [A : Type] [B : Type] [pair : (Pair A B)]
+        % pair -> B
+        | new  => b ;
+
+    def test-mul (mul c3 c3)
+    def test-pair (@Pair.new Bool Nat true @Nat.zero)
+    def test-fst (fst Bool Nat test-pair)
+    def test-snd (snd Bool Nat test-pair)
+    def test-pred (pred (@Nat.succ (@Nat.succ (@Nat.succ @Nat.zero))))
+    def test-elim bool-elim
+
+    test-fst
+"""
+
+term = string_to_term(test)
 
 print "Input term:"
 print term.to_string(Context())
