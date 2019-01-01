@@ -271,14 +271,11 @@ class App:
         argm_v = self.argm.eval(context)
         argm_t = self.argm.check(context)
         if not isinstance(func_t, All):
-            #print func_t.to_string(context)
-            #print "->" + self.to_string(context)
             raise(Exception("Non-function application."))
         ex_ctx = context.extend((func_t.name, func_t.bind, argm_v.shift(0, 1)))
         expect = func_t.bind.eval(ex_ctx).shift(0, -1)
         actual = argm_t.eval(context)
         if not expect.equal(actual, context):
-            #print self.to_string(context)
             raise(Exception("Type mismatch on '" + self.to_string(context) + "' application.\n"
                 + "- Expected : " + expect.to_string(Context()) + "\n"
                 + "- Actual   : " + actual.to_string(Context())))
@@ -324,7 +321,6 @@ class Var:
     def erase(self, context):
         if context.get(self.index) is None:
             return Era(Var(self.index))
-            #raise(Exception("Use of erased variable."))
         else:
             return context.get(self.index)[2]
 
@@ -524,10 +520,10 @@ test = """
     def CSuc [n : CNat] [P : Type] [S : {x : P} P] [Z : P] (S (n P S Z))
     def CZer            [P : Type] [S : {x : P} P] [Z : P] Z
 
-    -- Nat as a self-dependent intersection of an annotated Nat with its erasure
-    def Nat           @self {P : {-b : CNat} Type} {S : {-n : CNat} {p : (P -n   )} (P -(CSuc n   ))} {Z : (P -CZer)} (P -self)
-    def Suc [n : Nat]  #Nat [P : {-b : CNat} Type] [S : {-n : CNat} {p : (P -n   )} (P -(CSuc n   ))] [Z : (P -CZer)] (S -.n (~n P S Z))
-    def Zer            #Nat [P : {-b : CNat} Type] [S : {-n : CNat} {p : (P -n   )} (P -(CSuc n   ))] [Z : (P -CZer)] Z
+    -- Nat as a self-dependent intersection of an annotated CNat with its erasure
+    def Nat           @self {P : {-b : CNat} Type} {S : {-n : CNat} {p : (P -n)} (P -(CSuc n))} {Z : (P -CZer)} (P -self)
+    def Suc [n : Nat]  #Nat [P : {-b : CNat} Type] [S : {-n : CNat} {p : (P -n)} (P -(CSuc n))] [Z : (P -CZer)] (S -.n (~n P S Z))
+    def Zer            #Nat [P : {-b : CNat} Type] [S : {-n : CNat} {p : (P -n)} (P -(CSuc n))] [Z : (P -CZer)] Z
 
     -- Induction principle on Nat
     def Induction {n : Nat} {P : {x : Nat} Type} {S : {-n : Nat} {p : (P n)} (P (Suc n))} {Z : (P Zer)} (P n)
