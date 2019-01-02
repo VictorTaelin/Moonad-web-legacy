@@ -1,3 +1,5 @@
+import cProfile
+
 class Context:
     def __init__(self, list = []):
         self.list = list
@@ -483,7 +485,7 @@ class Pro:
         return term_v.term
 
     def erase(self, context):
-        return self.term.erase(context)
+        return self.term
 
 test = """
     def CNat          {P : Type} {S : {n : P} P} {Z : P} P
@@ -520,14 +522,45 @@ test = """
     def CSuc [n : CNat] [P : Type] [S : {x : P} P] [Z : P] (S (n P S Z))
     def CZer            [P : Type] [S : {x : P} P] [Z : P] Z
 
+    -- def Nat            [n : CNat]    {P : {-b : CNat} Type} {S : {-n : CNat} {p : (P -n)} (P -(CSuc n))} {Z : (P -CZer)} (P -n)
+    -- def Suc [i : CNat] [n : (Nat i)] [P : {-b : CNat} Type] [S : {-n : CNat} {p : (P -n)} (P -(CSuc n))] [Z : (P -CZer)] (S -i (n P S Z))
+    -- def Zer                          [P : {-b : CNat} Type] [S : {-n : CNat} {p : (P -n)} (P -(CSuc n))] [Z : (P -CZer)] Z
+    -- def ind [i : CNat] [n : (Nat i)] [P : {-b : CNat} Type] [S : {-n : CNat} {p : (P -n)} (P -(CSuc n))] [Z : (P -CZer)] (n P S Z)
+
     -- Nat as a self-dependent intersection of an annotated CNat with its erasure
     def Nat           @self {P : {-b : CNat} Type} {S : {-n : CNat} {p : (P -n)} (P -(CSuc n))} {Z : (P -CZer)} (P -self)
     def Suc [n : Nat]  #Nat [P : {-b : CNat} Type] [S : {-n : CNat} {p : (P -n)} (P -(CSuc n))] [Z : (P -CZer)] (S -.n (~n P S Z))
     def Zer            #Nat [P : {-b : CNat} Type] [S : {-n : CNat} {p : (P -n)} (P -(CSuc n))] [Z : (P -CZer)] Z
 
+    def induction [n : CNat] [P : {x : CNat} Type] [S : {-n : CNat} {p : (P n)} (P (CSuc n))] [Z : (P CZer)] (~^Nat n P S Z)
+
+    induction
+
+{n : {P : Type} {S : {x : P} P} {Z : P} P}
+{P : {x : {P : Type} {S : {x : P} P} {Z : P} P} Type}
+{S : {-n : {P : Type} {S : {x : P} P} {Z : P} P} {p : (P n)} (P [P : Type] [S : {x : P} P] [Z : P] (S (((n P) S) Z)))}
+{Z : (P [P : Type] [S : {x : P} P] [Z : P] Z)}
+(P -n)
+
+
     -- Induction principle on Nat
     def Induction {n : Nat} {P : {x : Nat} Type} {S : {-n : Nat} {p : (P n)} (P (Suc n))} {Z : (P Zer)} (P n)
     def induction [n : Nat] [P : {x : Nat} Type] [S : {-n : Nat} {p : (P n)} (P (Suc n))] [Z : (P Zer)] (~n [-x : CNat](P (^Nat x)) [-n : CNat][p : (P ^Nat n)](S -^Nat n p) Z)
+
+
+    f : {P : {n : CNat} Type}
+        {S : {n : CNat} [p : (P n)] (P (CSuc n))}
+        {Z : (P CZer)}
+        {n : CNat}
+        (P n)
+    f = [P : {-n : CNat} Type]
+        [S : {-n : CNat} [p : (P -n)] (P -(CSuc n))]
+        [Z : (P -CZer)]
+        [n : CNat]
+        (n P S Z)
+
+
+    induction
 
     -- Checks it
     (the Induction induction)
@@ -549,3 +582,4 @@ def foo():
     print ""
 
 foo()
+#cProfile.run('foo()')
