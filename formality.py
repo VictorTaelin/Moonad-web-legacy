@@ -1,25 +1,3 @@
-"""
-< Nat  : Type
-| Succ : {x : Nat} Nat
-| Zero : Nat >
---------------
-type  =            {Nat : Type} {Succ : {x : Nat} Nat} {Zero : Nat} Nat
-@Succ = [n : !Nat] [Nat : Type] [Succ : {x : Nat} Nat] [Zero : Nat] (Succ (n Nat Succ Zero))
-@Zero =            [Nat : Type] [Succ : {x : Nat} Nat] [Zero : Nat] Zero
-ind   = <self> {P : {self : !Nat} Type} {Succ : {x' : !Nat} {x : (P x')} (P (@Nat.Succ x'))} {Zero : (P @Nat.Zero)} (P self)
-
-< Ind  : {n : !Nat} Type
-| Step : {n : !Nat} {i : (Ind n)} (Ind (@Nat.succ n))
-| Base : (Ind @Nat.Zero) >
---------------------------
-type  = [n : !Nat]                {Ind : {x : !Nat} Type} {Step : {n : !Nat} {i : (Ind n)} (Ind (@Nat.Succ n))} {Base : (Ind @Nat.Zero)} (Ind n)
-@Step = [n : !Nat] [i : (!Ind n)] [Ind : {x : !Nat} Type] [Step : {n : !Nat} {i : (Ind n)} (Ind (@Nat.Succ n))] [Base : (Ind @Nat.Zero)] (Step n (i Ind Step Base))
-@Base =                           [Ind : {x : !Nat} Type] [Step : {n : !Nat} {i : (Ind n)} (Ind (@Nat.Succ n))] [Base : (Ind @Nat.Zero)] Base
-ind   = <self> [P : {n : !Nat} {self : (!Ind n)} Type] [Step : {n : !Nat} {i' : (!Ind n)} {i : (P n i')} (P (@Nat.succ n) (@Ind.step n i'))] [Base : (Ind @Nat.Zero)] (P 
-"""
-
-import cProfile
-
 class Context:
     def __init__(self, list = []):
         self.list = list
@@ -65,7 +43,7 @@ def string_to_term(code):
         sliced = code[Cursor.index : Cursor.index + len(string)]
         if sliced == string:
             Cursor.index += len(string)
-            return sliced
+            return True
         return False
 
     def parse_exact(string):
@@ -91,8 +69,9 @@ def string_to_term(code):
         elif match("("):
             func = parse_term(context)
             while Cursor.index < len(code) and not match(")"):
+                eras = match("-")
                 argm = parse_term(context)
-                func = App(func, argm)
+                func = App(eras, func, argm)
                 skip_spaces()
             return func
 
@@ -102,21 +81,23 @@ def string_to_term(code):
 
         # Forall
         elif match("{"):
+            eras = match("-")
             name = parse_name()
             skip = parse_exact(":")
             bind = parse_term(context)
             skip = parse_exact("}")
             body = parse_term(context.extend((name, None)))
-            return All(name, bind, body)
+            return All(eras, name, bind, body)
 
         # Lambda
         elif match("["):
+            eras = match("-")
             name = parse_name()
             skip = parse_exact(":")
             bind = parse_term(context)
             skip = parse_exact("]")
             body = parse_term(context.extend((name, None)))
-            return Lam(name, bind, body)
+            return Lam(eras, name, bind, body)
 
         # Definition
         elif match("def"):
@@ -199,22 +180,23 @@ class Typ:
         return Typ()
 
 class All:
-    def __init__(self, name, bind, body):
+    def __init__(self, eras, name, bind, body):
+        self.eras = eras
         self.name = name
         self.bind = bind
         self.body = body
 
     def to_string(self, context):
-        return "{" + self.name + " : " + self.bind.to_string(context) + "} " + self.body.to_string(context.extend((self.name, self.bind)))
+        return "{" + ("-" if self.eras else "") + self.name + " : " + self.bind.to_string(context) + "} " + self.body.to_string(context.extend((self.name, self.bind)))
 
     def shift(self, depth, inc):
-        return All(self.name, self.bind.shift(depth, inc), self.body.shift(depth + 1, inc)) 
+        return All(self.eras, self.name, self.bind.shift(depth, inc), self.body.shift(depth + 1, inc))
 
     def subst(self, depth, val):
-        return All(self.name, self.bind.subst(depth, val), self.body.subst(depth + 1, val.shift(0, 1))) 
+        return All(self.eras, self.name, self.bind.subst(depth, val), self.body.subst(depth + 1, val.shift(0, 1)))
 
     def equal(self, other):
-        return isinstance(other, All) and self.bind.equal(other.bind) and self.body.equal(other.body)
+        return isinstance(other, All) and self.eras == other.eras and self.bind.equal(other.bind) and self.body.equal(other.body)
 
     def check(self, context):
         bind_t = self.bind.check(context)
@@ -224,57 +206,64 @@ class All:
         return Typ()
 
     def eval(self):
-        return All(self.name, self.bind.eval(), self.body.eval())
+        return All(self.eras, self.name, self.bind.eval(), self.body.eval())
 
-class Lam: 
-    def __init__(self, name, bind, body):
+class Lam:
+    def __init__(self, eras, name, bind, body):
+        self.eras = eras
         self.name = name
         self.bind = bind
         self.body = body
 
     def to_string(self, context):
-        return "[" + self.name + " : " + self.bind.to_string(context) + "] " + self.body.to_string(context.extend((self.name, self.bind)))
+        return "[" + ("-" if self.eras else "") + self.name + " : " + self.bind.to_string(context) + "] " + self.body.to_string(context.extend((self.name, self.bind)))
 
     def shift(self, depth, inc):
-        return Lam(self.name, self.bind.shift(depth, inc), self.body.shift(depth + 1, inc)) 
+        return Lam(self.eras, self.name, self.bind.shift(depth, inc), self.body.shift(depth + 1, inc))
 
     def subst(self, depth, val):
-        return Lam(self.name, self.bind.subst(depth, val), self.body.subst(depth + 1, val.shift(0, 1))) 
+        return Lam(self.eras, self.name, self.bind.subst(depth, val), self.body.subst(depth + 1, val.shift(0, 1)))
 
     def equal(self, other):
-        return isinstance(other, Lam) and self.bind.equal(other.bind) and self.body.equal(other.body)
+        return isinstance(other, Lam) and self.eras == other.eras and self.bind.equal(other.bind) and self.body.equal(other.body)
 
     def check(self, context):
         body_t = self.body.check(context.extend((self.name, self.bind)))
-        result = All(self.name, self.bind, body_t)
+        result = All(self.eras, self.name, self.bind, body_t)
         result.check(context).equal(Typ())
         return result
 
     def eval(self):
-        return Lam(self.name, self.bind.eval(), self.body.eval())
+        if self.eras:
+            return self.body.eval().subst(0, Typ())
+        else:
+            return Lam(self.eras, self.name, self.bind.eval(), self.body.eval())
 
 class App:
-    def __init__(self, func, argm):
+    def __init__(self, eras, func, argm):
+        self.eras = eras
         self.func = func
         self.argm = argm
 
     def to_string(self, context):
-        return "(" + self.func.to_string(context) + " " + self.argm.to_string(context) + ")"
+        return "(" + self.func.to_string(context) + " " + ("-" if self.eras else "") + self.argm.to_string(context) + ")"
 
     def shift(self, depth, inc):
-        return App(self.func.shift(depth, inc), self.argm.shift(depth, inc))
+        return App(self.eras, self.func.shift(depth, inc), self.argm.shift(depth, inc))
 
     def subst(self, depth, val):
-        return App(self.func.subst(depth, val), self.argm.subst(depth, val))
+        return App(self.eras, self.func.subst(depth, val), self.argm.subst(depth, val))
 
     def equal(self, other):
-        return isinstance(other, App) and self.func.equal(other.func) and self.argm.equal(other.argm)
+        return isinstance(other, App) and self.eras == other.eras and self.func.equal(other.func) and self.argm.equal(other.argm)
 
     def check(self, context):
         func_t = self.func.check(context).eval()
         if not isinstance(func_t, All):
             raise(Exception("Non-function application."))
         argm_t = self.argm.check(context).eval()
+        if func_t.eras != self.eras:
+            raise(Exception("Erasure doesn't match on application: " + self.to_string(context)))
         if not func_t.bind.equal(argm_t):
             raise(Exception("Type mismatch on '" + self.to_string(context) + "' application.\n"
                 + "- Expected : " + func_t.bind.to_string(Context()) + "\n"
@@ -283,9 +272,12 @@ class App:
 
     def eval(self):
         func_v = self.func.eval()
-        if not isinstance(func_v, Lam):
-            return App(func_v, self.argm.eval())
-        return func_v.body.subst(0, self.argm).eval()
+        if self.eras:
+            return func_v
+        else:
+            if not isinstance(func_v, Lam):
+                return App(self.eras, func_v, self.argm.eval())
+            return func_v.body.subst(0, self.argm).eval()
 
 class Var:
     def __init__(self, index):
@@ -363,9 +355,10 @@ class Idt:
     def eval(self):
         type = self.type.eval()
         ctrs = map(lambda (name, type): (name, type.eval()), self.ctrs)
-        return Idt(self.name, type, ctrs) 
+        return Idt(self.name, type, ctrs)
 
     @staticmethod
+    # TODO: detect recursive ocurrences inside foralls, update derive_induction
     def is_recursive(depth, field_type):
         if isinstance(field_type, App):
             return Idt.is_recursive(depth, field_type.func)
@@ -374,68 +367,54 @@ class Idt:
         return False
 
     def derive_induction(self, term, type):
-
         def build_motive(depth, type):
-            #print ".. building motive"
             def adjust(depth, motive_type, self_type):
-                #print ".... adjust depth="+str(depth)+" motive_type="+motive_type.to_string(Context())+" self_type="+self_type.to_string(Context())
                 if isinstance(motive_type, All):
-                    return All(motive_type.name, motive_type.bind, adjust(depth + 1, motive_type.body, App(self_type.shift(0, 1), Var(0))))
+                    return All(motive_type.eras, motive_type.name, motive_type.bind, adjust(depth + 1, motive_type.body, App(self_type.eras, self_type.shift(0, 1), Var(0))))
                 else:
-                    return All("self", self_type, motive_type)
+                    return All(False, "self", self_type, motive_type)
 
-            return All("P", adjust(depth, type.bind, self.derive_type()), build_constructors(depth + 1, type.body))
+            return All(False, "P", adjust(depth, type.bind, self.derive_type()), build_constructors(depth + 1, type.body))
 
         def build_constructors(depth, type):
             if isinstance(type, All):
-                #print ".. building constructor " + type.name
-                def adjust(depth, fields_type, self_value): 
-                    #print ".... adjust depth="+str(depth)+" fields_type=("+fields_type.to_string(Context())+") self_value=("+self_value.to_string(Context())+")"
+                def adjust(depth, fields_type, self_value):
                     if isinstance(fields_type, All):
-                        #print ".... building field " + fields_type.name
-                        #print "...... is recursive? depth="+str(depth)
                         if Idt.is_recursive(depth - 1, fields_type.bind):
-                            #print "...... is recursive. field_type  ="+fields_type.bind.to_string(Context())
-                            #print "......               substituted ="+fields_type.bind.subst(depth - 1, self.derive_type().shift(0, depth)).to_string(Context())
-                            return (All(fields_type.name + "_", fields_type.bind.subst(depth - 1, self.derive_type().shift(0, depth)),
-                                    All(fields_type.name, App(fields_type.bind.shift(0, 1), Var(0)),
-                                    adjust(depth + 2, fields_type.body.shift(0, 1), App(self_value.shift(0, 2), Var(1))))))
+                            return (All(True, fields_type.name + "_", fields_type.bind.subst(depth - 1, self.derive_type().shift(0, depth)),
+                                    All(fields_type.eras, fields_type.name, App(False, fields_type.bind.shift(0, 1), Var(0)),
+                                    adjust(depth + 2, fields_type.body.shift(0, 1), App(False, self_value.shift(0, 2), Var(1))))))
                         else:
-                            #print "...... is not recursive"
-                            return All(fields_type.name, fields_type.bind, adjust(depth + 1, fields_type.body, App(self_value.shift(0, 1), Var(0))))
+                            return All(fields_type.eras, fields_type.name, fields_type.bind, adjust(depth + 1, fields_type.body, App(False, self_value.shift(0, 1), Var(0))))
                     else:
-                        #print ".... building return " + App(fields_type, self_value).to_string(Context())
-                        return App(fields_type, self_value)
-                return All(type.name, adjust(depth, type.bind, self.derive_constructor(type.name)), build_constructors(depth + 1, type.body))
+                        return App(False, fields_type, self_value)
+                return All(type.eras, type.name, adjust(depth, type.bind, self.derive_constructor(type.name)), build_constructors(depth + 1, type.body))
             else:
-                #print "building return type"
-                return App(type, term)
-
-        #print "building induction for " + term.to_string(Context()) + "   :   " + type.to_string(Context())
+                return App(False, type, term.shift(0, depth))
 
         return build_motive(0, type)
 
     def derive_type(self):
         def build_indices(depth, indices_type):
             if isinstance(indices_type, All):
-                return Lam(indices_type.name, indices_type.bind, build_indices(depth + 1, indices_type.body))
+                return Lam(indices_type.eras, indices_type.name, indices_type.bind, build_indices(depth + 1, indices_type.body))
             else:
                 return build_motive(depth)
 
         def build_motive(depth):
-            return All(self.name, self.type.shift(0, depth), build_constructor(depth + 1, 0))
+            return All(False, self.name, self.type.shift(0, depth), build_constructor(depth + 1, 0))
 
         def build_constructor(depth, num):
             if num < len(self.ctrs):
                 (name, type) = self.ctrs[num]
-                return All(name, type.shift(1, depth).subst(0, Var(num)), build_constructor(depth + 1, num + 1))
+                return All(False, name, type.shift(1, depth).subst(0, Var(num)), build_constructor(depth + 1, num + 1))
             else:
                 return build_return_type(depth)
 
         def build_return_type(depth):
             return_type = Var(len(self.ctrs))
             for i in xrange(depth - len(self.ctrs) - 1):
-                return_type = App(return_type, Var(depth - i - 1))
+                return_type = App(False, return_type, Var(depth - i - 1))
             return return_type
 
         return build_indices(0, self.type)
@@ -449,7 +428,7 @@ class Idt:
 
         def build_arguments(depth, fields_type):
             if isinstance(fields_type, All):
-                return Lam(fields_type.name, fields_type.bind, build_arguments(depth + 1, fields_type.body))
+                return Lam(fields_type.eras, fields_type.name, fields_type.bind, build_arguments(depth + 1, fields_type.body))
             else:
                 return build_constructor(depth)
 
@@ -461,8 +440,8 @@ class Idt:
                 field = Var(depth - field_index - 1)
                 if Idt.is_recursive(field_index, fields_type.bind):
                     for i in xrange(len(self.ctrs) + 1):
-                        field = App(field, Var(len(self.ctrs) - i))
-                return build_fields(depth, fields_type.body, field_index + 1, App(term, field))
+                        field = App(False, field, Var(len(self.ctrs) - i))
+                return build_fields(depth, fields_type.body, field_index + 1, App(fields_type.eras, term, field))
             else:
                 return term
 
@@ -540,10 +519,10 @@ class Ind:
         return "&" + self.data.to_string(context) + " " + self.term.to_string(context)
 
     def shift(self, depth, inc):
-        return Ind(self.data.shift(depth, inc), self.name)
+        return Ind(self.data.shift(depth, inc), self.term.shift(depth, inc))
 
     def subst(self, depth, val):
-        return Ind(self.data.subst(depth, val), self.name)
+        return Ind(self.data.subst(depth, val), self.term.subst(depth, val))
 
     def equal(self, other):
         return isinstance(other, Ind) and self.data.equal(other.data) and self.term.equal(other.term)
@@ -559,58 +538,71 @@ class Ind:
         return self.term.eval()
 
 test = """
-    -- Church nat
-    def CNat           {P : Type} {S : {n : P} P} {Z : P} P
-    def c0             [P : Type] [S : {n : P} P] [Z : P] Z
-    def cS  [n : CNat] [P : Type] [S : {n : P} P] [Z : P] (S (n P S Z))
-    def c1  [P : Type] [S : {n : P} P] [Z : P] (S Z)
-    def c2  [P : Type] [S : {n : P} P] [Z : P] (S (S Z))
-    def c3  [P : Type] [S : {n : P} P] [Z : P] (S (S (S Z)))
-    def add [a : CNat] [b : CNat] [P : Type] [S : {x : P} P] [Z : P] (a P S (b P S Z))
-    def mul [a : CNat] [b : CNat] [P : Type] [S : {x : P} P] [Z : P] (a P (b P S) Z)
-    def the [P : Type] [x : P] x
+    def the [P : Type] [x : P]
+        x
 
-    -- Church boolean
-    def CBool {P : Type} {T : P} {F : P} P
-    def CTrue [P : Type] [T : P] [F : P] T
-    def CFals [P : Type] [T : P] [F : P] F
-
+    -- Booleans
     def Bool
         < Bool  : Type
         | true  : Bool
         | false : Bool >
 
+    -- Boolean constructors
+    def true @Bool.true
+    def false @Bool.false
+
+    -- Induction on booleans
+    def Bool_ind
+        [P : {self : !Bool} Type]
+        [T : (P @Bool.true)]
+        [F : (P @Bool.false)]
+        [b : !Bool]
+        (&Bool b P T F)
+
+    -- Natural numbers
     def Nat
         < Nat  : Type
         | succ : {n : Nat} Nat
         | zero : Nat >
 
+    -- Induction on natural numbers
+    def Nat_ind
+        [n : !Nat]
+        [P : {self : !Nat} Type]
+        [S : {-n : !Nat} {pn : (P n)} (P (@Nat.succ n))]
+        [Z : (P @Nat.zero)]
+        (&Nat n P S Z)
+
+    -- Natural number examples
     def n0 @Nat.zero
     def n1 (@Nat.succ n0)
     def n2 (@Nat.succ n1)
     def n3 (@Nat.succ n2)
     def n4 (@Nat.succ n3)
 
-    def NBits [n : !Nat]
-        (n Data 
-            [d : Data] <Bits : Type | O : {x : !d} Bits | I : {x : !d} Bits> 
-            <Bits : Type | E : Bits>)
-
-    def Ind 
+    -- Example type indexed on Nat (just Vectors without elements)
+    def Ind
         < Ind  : {n : !Nat} Type
-        | step : {n : !Nat} {i : (Ind n)} (Ind (@Nat.succ n))
+        | step : {-n : !Nat} {i : (Ind n)} (Ind (@Nat.succ n))
         | base : (Ind @Nat.Zero) >
 
+    -- Ind examples
     def i0 @Ind.base
-    def i1 (@Ind.step n0 i0)
-    def i2 (@Ind.step n1 i1)
-    def i3 (@Ind.step n2 i2)
-    def i4 (@Ind.step n3 i3)
+    def i1 (@Ind.step -n0 i0)
+    def i2 (@Ind.step -n1 i1)
+    def i3 (@Ind.step -n2 i2)
+    def i4 (@Ind.step -n3 i3)
 
-    &Ind i2
+    -- Proof we can build Ind from Nat with the induction principle
+    def Nat_to_Ind [n : !Nat]
+        (&Nat n [n : !Nat](!Ind n)
+            [-n_ : !Nat] [n : (!Ind n_)] (@Ind.step -n_ n)
+            @Ind.base)
+
+    (the (!Ind n4) (Nat_to_Ind n4))
 """
 
-def foo():
+def test_all():
     term = string_to_term(test)
 
     print "Input term:"
@@ -622,9 +614,7 @@ def foo():
     print ""
 
     print "Inferred type:"
-    print term.check(Context()).to_string(Context())
+    print term.check(Context()).eval().to_string(Context())
     print ""
 
-foo()
-
-#cProfile.run('foo()')
+test_all()
