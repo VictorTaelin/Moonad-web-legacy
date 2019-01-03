@@ -1,3 +1,23 @@
+"""
+< Nat  : Type
+| Succ : {x : Nat} Nat
+| Zero : Nat >
+--------------
+type  =            {Nat : Type} {Succ : {x : Nat} Nat} {Zero : Nat} Nat
+@Succ = [n : !Nat] [Nat : Type] [Succ : {x : Nat} Nat] [Zero : Nat] (Succ (n Nat Succ Zero))
+@Zero =            [Nat : Type] [Succ : {x : Nat} Nat] [Zero : Nat] Zero
+ind   = <self> {P : {self : !Nat} Type} {Succ : {x' : !Nat} {x : (P x')} (P (@Nat.Succ x'))} {Zero : (P @Nat.Zero)} (P self)
+
+< Ind  : {n : !Nat} Type
+| Step : {n : !Nat} {i : (Ind n)} (Ind (@Nat.succ n))
+| Base : (Ind @Nat.Zero) >
+--------------------------
+type  = [n : !Nat]                {Ind : {x : !Nat} Type} {Step : {n : !Nat} {i : (Ind n)} (Ind (@Nat.Succ n))} {Base : (Ind @Nat.Zero)} (Ind n)
+@Step = [n : !Nat] [i : (!Ind n)] [Ind : {x : !Nat} Type] [Step : {n : !Nat} {i : (Ind n)} (Ind (@Nat.Succ n))] [Base : (Ind @Nat.Zero)] (Step n (i Ind Step Base))
+@Base =                           [Ind : {x : !Nat} Type] [Step : {n : !Nat} {i : (Ind n)} (Ind (@Nat.Succ n))] [Base : (Ind @Nat.Zero)] Base
+ind   = <self> [P : {n : !Nat} {self : (!Ind n)} Type] [Step : {n : !Nat} {i' : (!Ind n)} {i : (P n i')} (P (@Nat.succ n) (@Ind.step n i'))] [Base : (Ind @Nat.Zero)] (P 
+"""
+
 import cProfile
 
 class Context:
@@ -134,6 +154,12 @@ def string_to_term(code):
             skip = parse_exact(".")
             name = parse_name()
             return Con(data, name)
+
+        # IDT Induction
+        elif match("&"):
+            data = parse_term(context)
+            term = parse_term(context)
+            return Ind(data, term)
 
         # Variable (Bruijn indexed)
         elif match("#"):
@@ -339,6 +365,56 @@ class Idt:
         ctrs = map(lambda (name, type): (name, type.eval()), self.ctrs)
         return Idt(self.name, type, ctrs) 
 
+    @staticmethod
+    def is_recursive(depth, field_type):
+        if isinstance(field_type, App):
+            return Idt.is_recursive(depth, field_type.func)
+        elif isinstance(field_type, Var) and field_type.index == depth:
+            return True
+        return False
+
+    def derive_induction(self, term, type):
+
+        def build_motive(depth, type):
+            #print ".. building motive"
+            def adjust(depth, motive_type, self_type):
+                #print ".... adjust depth="+str(depth)+" motive_type="+motive_type.to_string(Context())+" self_type="+self_type.to_string(Context())
+                if isinstance(motive_type, All):
+                    return All(motive_type.name, motive_type.bind, adjust(depth + 1, motive_type.body, App(self_type.shift(0, 1), Var(0))))
+                else:
+                    return All("self", self_type, motive_type)
+
+            return All("P", adjust(depth, type.bind, self.derive_type()), build_constructors(depth + 1, type.body))
+
+        def build_constructors(depth, type):
+            if isinstance(type, All):
+                #print ".. building constructor " + type.name
+                def adjust(depth, fields_type, self_value): 
+                    #print ".... adjust depth="+str(depth)+" fields_type=("+fields_type.to_string(Context())+") self_value=("+self_value.to_string(Context())+")"
+                    if isinstance(fields_type, All):
+                        #print ".... building field " + fields_type.name
+                        #print "...... is recursive? depth="+str(depth)
+                        if Idt.is_recursive(depth - 1, fields_type.bind):
+                            #print "...... is recursive. field_type  ="+fields_type.bind.to_string(Context())
+                            #print "......               substituted ="+fields_type.bind.subst(depth - 1, self.derive_type().shift(0, depth)).to_string(Context())
+                            return (All(fields_type.name + "_", fields_type.bind.subst(depth - 1, self.derive_type().shift(0, depth)),
+                                    All(fields_type.name, App(fields_type.bind.shift(0, 1), Var(0)),
+                                    adjust(depth + 2, fields_type.body.shift(0, 1), App(self_value.shift(0, 2), Var(1))))))
+                        else:
+                            #print "...... is not recursive"
+                            return All(fields_type.name, fields_type.bind, adjust(depth + 1, fields_type.body, App(self_value.shift(0, 1), Var(0))))
+                    else:
+                        #print ".... building return " + App(fields_type, self_value).to_string(Context())
+                        return App(fields_type, self_value)
+                return All(type.name, adjust(depth, type.bind, self.derive_constructor(type.name)), build_constructors(depth + 1, type.body))
+            else:
+                #print "building return type"
+                return App(type, term)
+
+        #print "building induction for " + term.to_string(Context()) + "   :   " + type.to_string(Context())
+
+        return build_motive(0, type)
+
     def derive_type(self):
         def build_indices(depth, indices_type):
             if isinstance(indices_type, All):
@@ -365,60 +441,32 @@ class Idt:
         return build_indices(0, self.type)
 
     def derive_constructor(self, name):
-        """
-
-        < Nat  : Type
-        | Succ : {x : Nat} Nat
-        | Zero : Nat >
-        --------------
-        type  =            {Nat : Type} {Succ : {x : Nat} Nat} {Zero : Nat} Nat
-        @Succ = [n : !Nat] [Nat : Type] [Succ : {x : Nat} Nat] [Zero : Nat] (Succ (n Nat Succ Zero))
-        @Zero =            [Nat : Type] [Succ : {x : Nat} Nat] [Zero : Nat] Zero
-        ind   = [n : !Nat] [P : {n : !Nat} Type] [Succ : {n : !Nat} {p : (P n)} (P (@Nat.Succ n))] [Zero : (P @Nat.Zero)] (P n)
-
-        < Ind  : {n : !Nat} Type
-        | Step : {n : !Nat} {i : (Ind n)} (Ind (@Nat.succ n))
-        | Base : (Ind @Nat.Zero) >
-        --------------------------
-        type  = [n : !Nat]                {Ind : {x : !Nat} Type} {Step : {n : !Nat} {i : (Ind n)} (Ind (@Nat.Succ n))} {Base : (Ind @Nat.Zero)} (Ind n)
-        @Step = [n : !Nat] [i : (!Ind n)] [Ind : {x : !Nat} Type] [Step : {n : !Nat} {i : (Ind n)} (Ind (@Nat.Succ n))] [Base : (Ind @Nat.Zero)] (Step n (i Ind Step Base))
-        @Base =                           [Ind : {x : !Nat} Type] [Step : {n : !Nat} {i : (Ind n)} (Ind (@Nat.Succ n))] [Base : (Ind @Nat.Zero)] Base
-        ind   = [n : !Nat] [i : (!Ind n)] [P : {n : !Nat} {i : (!Ind n)} Type] [Step : {n : !Nat} {i : (!Ind n)} {p : (P n i)} (P (@Nat.succ n) (@Ind.step i))] [Base : (Ind @Nat.Zero)]
-
-        """
         idt_type = self.derive_type()
 
         for (ctr_index, (ctr_name, ctr_type)) in enumerate(self.ctrs):
             if name == ctr_name:
                 break
 
-        def is_recursive(field_type):
-            if isinstance(field_type, App):
-                return is_recursive(fields_type.func)
-            elif isinstance(field_type, Var) and field_type.index == 0:
-                return True
-            return False
-
-        def build_field_arguments(depth, fields_type):
+        def build_arguments(depth, fields_type):
             if isinstance(fields_type, All):
-                return Lam(fields_type.name, fields_type.bind, build_field_arguments(depth + 1, fields_type.body))
+                return Lam(fields_type.name, fields_type.bind, build_arguments(depth + 1, fields_type.body))
             else:
                 return build_constructor(depth)
 
         def build_constructor(depth):
-            return build_field_applications(depth, ctr_type, 0, Var(len(self.ctrs) - ctr_index - 1))
+            return build_fields(depth, ctr_type, 0, Var(len(self.ctrs) - ctr_index - 1))
 
-        def build_field_applications(depth, fields_type, field_index, term):
+        def build_fields(depth, fields_type, field_index, term):
             if isinstance(fields_type, All):
                 field = Var(depth - field_index - 1)
-                if is_recursive(fields_type.bind):
+                if Idt.is_recursive(field_index, fields_type.bind):
                     for i in xrange(len(self.ctrs) + 1):
                         field = App(field, Var(len(self.ctrs) - i))
-                return build_field_applications(depth, fields_type.body, field_index + 1, App(term, field))
+                return build_fields(depth, fields_type.body, field_index + 1, App(term, field))
             else:
                 return term
 
-        return build_field_arguments(0, ctr_type.subst(0, idt_type))
+        return build_arguments(0, ctr_type.subst(0, idt_type).eval())
 
 class Ity:
     def __init__(self, data):
@@ -462,7 +510,7 @@ class Con:
     def shift(self, depth, inc):
         return Con(self.data.shift(depth, inc), self.name)
 
-    def subst(seld, depth, val):
+    def subst(self, depth, val):
         return Con(self.data.subst(depth, val), self.name)
 
     def equal(self, other):
@@ -482,6 +530,33 @@ class Con:
             return data_v.derive_constructor(self.name)
         else:
             return Con(data_v, self.name)
+
+class Ind:
+    def __init__(self, data, term):
+        self.data = data
+        self.term = term
+
+    def to_string(self, context):
+        return "&" + self.data.to_string(context) + " " + self.term.to_string(context)
+
+    def shift(self, depth, inc):
+        return Ind(self.data.shift(depth, inc), self.name)
+
+    def subst(self, depth, val):
+        return Ind(self.data.subst(depth, val), self.name)
+
+    def equal(self, other):
+        return isinstance(other, Ind) and self.data.equal(other.data) and self.term.equal(other.term)
+
+    def check(self, context):
+        data_v = self.data.eval()
+        if isinstance(data_v, Idt):
+            return data_v.derive_induction(self.term, self.term.check(context))
+        else:
+            raise(Exception("Couldn't determine datatype statically: " + self.to_string(context)))
+
+    def eval(self):
+        return self.term.eval()
 
 test = """
     -- Church nat
@@ -516,21 +591,34 @@ test = """
     def n3 (@Nat.succ n2)
     def n4 (@Nat.succ n3)
 
-    def Pair [A : Type] [B : Type]
-        < Pair : Type
-        | new  : {a : A} {b : B} Pair >
-
     def NBits [n : !Nat]
         (n Data 
-            [d : Data] < Bits : Type | O : {x : !d} Bits | I : {x : !d} Bits > 
+            [d : Data] <Bits : Type | O : {x : !d} Bits | I : {x : !d} Bits> 
             <Bits : Type | E : Bits>)
 
     def Ind 
         < Ind  : {n : !Nat} Type
-        | Step : {n : !Nat} {i : (Ind n)} (Ind (@Nat.succ n))
-        | Base : (Ind @Nat.Zero) >
+        | step : {n : !Nat} {i : (Ind n)} (Ind (@Nat.succ n))
+        | base : (Ind @Nat.Zero) >
 
-    !Ind
+    def i0 @Ind.base
+    def i1 (@Ind.step n0 i0)
+    def i2 (@Ind.step n1 i1)
+    def i3 (@Ind.step n2 i2)
+    def i4 (@Ind.step n3 i3)
+
+    &Ind i2
+
+
+{P : {n : {Nat : Type} {succ : {n : Nat} Nat} {zero : Nat} Nat} {self : ([n : {Nat : Type} {succ : {n : Nat} Nat} {zero : Nat} Nat] {Ind : {n : {Nat : Type} {succ : {n : Nat} Nat} {zero : Nat} Nat} Type} {step : {n : {Nat : Type} {succ : {n : Nat} Nat} {zero : Nat} Nat} {i : (Ind n)} (Ind [Nat : Type] [succ : {n : Nat} Nat] [zero : Nat] (succ (((n Nat) succ) zero)))} {base : (Ind [Nat : Type] [succ : {n : Nat} Nat] [zero : Nat] zero)} (Ind n) n)} Type} {step : {n : {Nat : Type} {succ : {n : Nat} Nat} {zero : Nat} Nat} {i_ : ([n : {Nat : Type} {succ : {n : Nat} Nat} {zero : Nat} Nat] {Ind : {n : {Nat : Type} {succ : {n : Nat} Nat} {zero : Nat} Nat} Type} {step : {n : {Nat : Type} {succ : {n : Nat} Nat} {zero : Nat} Nat} {i : (Ind n)} (Ind [Nat : Type] [succ : {n : Nat} Nat] [zero : Nat] (succ (((n Nat) succ) zero)))} {base : (Ind [Nat : Type] [succ : {n : Nat} Nat] [zero : Nat] zero)} (Ind n) n)} {i : ((P n) i_)} ((P [Nat : Type] [succ : {n : Nat} Nat] [zero : Nat] (succ (((n Nat) succ) zero))) (([n : {Nat : Type} {succ : {n : Nat} Nat} {zero : Nat} Nat] [i : {Ind : {n : {Nat : Type} {succ : {n : Nat} Nat} {zero : Nat} Nat} Type} {step : {n : {Nat : Type} {succ : {n : Nat} Nat} {zero : Nat} Nat} {i : (Ind n)} (Ind [Nat : Type] [succ : {n : Nat} Nat] [zero : Nat] (succ (((n Nat) succ) zero)))} {base : (Ind [Nat : Type] [succ : {n : Nat} Nat] [zero : Nat] zero)} (Ind n)] [Ind : {n : {Nat : Type} {succ : {n : Nat} Nat} {zero : Nat} Nat} Type] [step : {n : {Nat : Type} {succ : {n : Nat} Nat} {zero : Nat} Nat} {i : (Ind n)} (Ind [Nat : Type] [succ : {n : Nat} Nat] [zero : Nat] (succ (((n Nat) succ) zero)))] [base : (Ind [Nat : Type] [succ : {n : Nat} Nat] [zero : Nat] zero)] ((step n) (((i Ind) step) base)) n) i_))} {base : ((P [Nat : Type] [succ : {n : Nat} Nat] [zero : Nat] zero) [Ind : {n : {Nat : Type} {succ : {n : Nat} Nat} {zero : Nat} Nat} Type] [step : {n : {Nat : Type} {succ : {n : Nat} Nat} {zero : Nat} Nat} {i : (Ind n)} (Ind [Nat : Type] [succ : {n : Nat} Nat] [zero : Nat] (succ (((n Nat) succ) zero)))] [base : (Ind [Nat : Type] [succ : {n : Nat} Nat] [zero : Nat] zero)] base)} ((P [Nat : Type] [succ : {n : Nat} Nat] [zero : Nat] (succ (succ zero))) ((@<Ind : {n : !<Nat : Type | succ : {n : Nat} Nat | zero : Nat>} Type | step : {n : !<Nat : Type | succ : {n : Nat} Nat | zero : Nat>} {i : (Ind n)} (Ind (@<Nat : Type | succ : {n : Nat} Nat | zero : Nat>.succ n)) | base : (Ind @<Nat : Type | succ : {n : Nat} Nat | zero : Nat>.Zero)>.step (@<Nat : Type | succ : {n : Nat} Nat | zero : Nat>.succ @<Nat : Type | succ : {n : Nat} Nat | zero : Nat>.zero)) ((@<Ind : {n : !<Nat : Type | succ : {n : Nat} Nat | zero : Nat>} Type | step : {n : !<Nat : Type | succ : {n : Nat} Nat | zero : Nat>} {i : (Ind n)} (Ind (@<Nat : Type | succ : {n : Nat} Nat | zero : Nat>.succ n)) | base : (Ind @<Nat : Type | succ : {n : Nat} Nat | zero : Nat>.Zero)>.step @<Nat : Type | succ : {n : Nat} Nat | zero : Nat>.zero) @<Ind : {n : !<Nat : Type | succ : {n : Nat} Nat | zero : Nat>} Type | step : {n : !<Nat : Type | succ : {n : Nat} Nat | zero : Nat>} {i : (Ind n)} (Ind (@<Nat : Type | succ : {n : Nat} Nat | zero : Nat>.succ n)) | base : (Ind @<Nat : Type | succ : {n : Nat} Nat | zero : Nat>.Zero)>.base)))
+
+
+{P    : {n : !NAT} {self : (!IND n)} Type}
+{step : {n : !NAT} {i_ : (!IND n)} {i : ((P n) i_)} (P (@Nat.succ n) (@Ind.step i i_))}
+{base : ((P @Nat.zero) @Ind.base)}
+((P @Nat.zero) @Ind.base)
+
+
 
 """
 
