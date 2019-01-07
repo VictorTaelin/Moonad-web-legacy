@@ -35,6 +35,38 @@ class Context:
                     skip = skip - 1
         return None
 
+    def show(self):
+        text = ""
+        for (name, value) in reversed(self.list):
+            text += "-- " + name + " : " + value.to_string(self) + "\n"
+        return text
+
+class Nik:
+    def __init__(self, name, term):
+        self.name = name
+        self.term = term
+
+    def to_string(self, context):
+        return self.name
+
+    def shift(self, depth, inc):
+        return Nik(self.name, self.term.shift(depth, inc))
+
+    def subst(self, depth, val):
+        return Nik(self.name, self.term.subst(depth, val))
+
+    def uses(self, depth):
+        return self.term.uses(depth)
+
+    def equal(self, other):
+        return self.term.equal(other)
+
+    def eval(self, eras):
+        return self.term.eval(eras)
+
+    def check(self, context):
+        return self.term.check(context)
+        
 class Typ:
     def __init__(self):
         pass
@@ -90,7 +122,7 @@ class All:
         bind_t = self.bind.check(context)
         body_t = self.body.check(context.extend((self.name, bind_v)))
         if not bind_t.eval(True).equal(Typ()) or not body_t.eval(True).equal(Typ()):
-            raise(Exception("Forall not a type."))
+            raise(Exception("Forall not a type. Context:\n" + context.show()))
         return Typ()
 
 class Lam:
@@ -126,13 +158,13 @@ class Lam:
 
     def check(self, context):
         if self.bind is None:
-            raise(Exception("Can't infer non-annotated lambda."))
+            raise(Exception("Can't infer non-annotated lambda. Context:", context.show()))
         else:
             bind_v = self.bind
             bind_t = self.bind.check(context)
             body_t = self.body.check(context.extend((self.name, bind_v)))
             if not bind_t.eval(True).equal(Typ()):
-                raise(Exception("Function type not a type."))
+                raise(Exception("Function type not a type. Context:", context.show()))
             return All(self.eras, self.name, bind_v, body_t)
 
 class App:
@@ -142,7 +174,12 @@ class App:
         self.argm = argm
 
     def to_string(self, context):
-        return "(" + self.func.to_string(context) + " " + ("-" if self.eras else "") + self.argm.to_string(context) + ")"
+        text = ")"
+        while isinstance(self, App):
+            text = " " + ("-" if self.eras else "") + self.argm.to_string(context) + text
+            self = self.func
+        text = "(" + self.to_string(context) + text
+        return text
 
     def shift(self, depth, inc):
         return App(self.eras, self.func.shift(depth, inc), self.argm.shift(depth, inc))
@@ -169,13 +206,15 @@ class App:
         func_t = self.func.check(context)
         argm_t = self.argm.check(context)
         if not isinstance(func_t.eval(True), All):
-            raise(Exception("Non-function application: " + self.to_string(context)))
+            raise(Exception("Non-function application. Context:\n" + context.show()))
         if func_t.eval(True).eras != self.eras:
-            raise(Exception("Erasure doesn't match on application: " + self.to_string(context)))
+            raise(Exception("Erasure doesn't match on application. Context:\n" + context.show()))
         if not func_t.eval(True).bind.equal(argm_t.eval(True)):
-            raise(Exception("Type mismatch on '" + self.to_string(context) + "' application.\n"
-                + "- Expect : " + func_t.bind.eval(True).to_string(Context()) + "\n"
-                + "- Actual : " + argm_t.eval(True).to_string(Context())))
+            error_str = "Type mismatch on application " + self.to_string(context) + ".\n"
+            error_str += "- Expect: " + func_t.bind.eval(True).to_string(context) + "\n"
+            error_str += "- Actual: " + argm_t.eval(True).to_string(context) + "\n"
+            error_str += "- Context:\n" + context.show()
+            raise(Exception(error_str))
         return func_t.eval(False).body.subst(0, self.argm)
 
 class Var:
@@ -191,7 +230,6 @@ class Var:
     def subst(self, depth, val):
         if depth == self.index:
             if val is None:
-                #return Typ()
                 raise(Exception("Use of erased variable."))
             else:
                 return val
@@ -342,8 +380,8 @@ class Idt:
                 # TODO: currently only works for very simple recursive ocurrences
                 if fields_type.bind.uses(depth) > 0:
                     body = build_constructor(depth + 2, fields_type.body.shift(0, 1), App(fields_type.eras, self_value.shift(0, 2), Var(1)))
-                    all1 = All(fields_type.eras, fields_type.name, App(False, fields_type.bind.shift(0, 1), Var(0)), body)
-                    all0 = All(True, fields_type.name + "_index", fields_type.bind.subst(depth, self.derive_type().shift(0, depth)), all1)
+                    all1 = All(fields_type.eras, "~" + fields_type.name, App(False, fields_type.bind.shift(0, 1), Var(0)), body)
+                    all0 = All(True, fields_type.name, fields_type.bind.subst(depth, self.derive_type().shift(0, depth)), all1)
                     return all0
                 else:
                     body = build_constructor(depth + 1, fields_type.body, App(fields_type.eras, self_value.shift(0, 1), Var(0)))
@@ -361,7 +399,7 @@ class Ity:
         self.data = data
 
     def to_string(self, context):
-        return "!" + self.data.to_string(context)
+        return "&" + self.data.to_string(context)
 
     def shift(self, depth, inc):
         return Ity(self.data.shift(depth, inc))
@@ -376,18 +414,18 @@ class Ity:
         return isinstance(other, Ity) and self.data.equal(other.data)
 
     def eval(self, eras):
-        data_v = self.data
+        data_v = self.data.eval(False)
         if isinstance(data_v, Idt):
             return data_v.derive_type().eval(eras)
         else:
             return Ity(data_v)
 
     def check(self, context):
-        data_v = self.data
+        data_v = self.data.eval(False)
         if isinstance(data_v, Idt):
             return data_v.derive_type().check(context).eval(False)
         else:
-            raise(Exception("Couldn't determine datatype statically: " + self.to_string(context)))
+            raise(Exception("Couldn't determine datatype statically. Context:\n" + context.show()))
 
 class Con:
     def __init__(self, data, name):
@@ -410,18 +448,18 @@ class Con:
         return isinstance(other, Con) and self.data.equal(other.data) and self.name == other.name
 
     def eval(self, eras):
-        data_v = self.data
+        data_v = self.data.eval(False)
         if isinstance(data_v, Idt):
             return data_v.derive_constructor(self.name).eval(eras)
         else:
             return Con(data_v, self.name)
 
     def check(self, context):
-        data_v = self.data
+        data_v = self.data.eval(False)
         if isinstance(data_v, Idt):
             return data_v.derive_constructor(self.name).check(context).eval(False)
         else:
-            raise(Exception("Couldn't determine datatype statically: " + self.to_string(context)))
+            raise(Exception("Couldn't determine datatype statically. Context:\n" + context.show()))
 
 class Ind:
     def __init__(self, data, term, moti, cses):
@@ -431,7 +469,7 @@ class Ind:
         self.cses = cses
 
     def to_string(self, context):
-        vars = self.data.to_inductive().get_vars()
+        vars = self.data.eval(False).to_inductive().get_vars()
         text = "? " + self.data.to_string(context)
         text += " " + self.term.to_string(context) + " ->"
         text += " " + self.moti.to_string(reduce(lambda ctx, var: ctx.extend((var, None)), vars[0], context))
@@ -454,7 +492,7 @@ class Ind:
                 return Lam(type.eras, type.name, type.bind, build_term(type.body, body, vars - 1))
             else:
                 return body
-        indu = self.data.to_inductive()
+        indu = self.data.eval(False).to_inductive()
         vars = indu.get_vars()
         moti = build_term(indu.type, self.moti, len(vars[0]))
         cses = []
@@ -465,7 +503,7 @@ class Ind:
         return (moti, cses)
 
     def shift(self, depth, inc):
-        vars = self.data.to_inductive().get_vars()
+        vars = self.data.eval(False).to_inductive().get_vars()
         data = self.data.shift(depth, inc)
         term = self.term.shift(depth, inc)
         moti = self.moti.shift(depth + len(vars[0]), inc)
@@ -473,7 +511,7 @@ class Ind:
         return Ind(data, term, moti, ctrs)
 
     def subst(self, depth, val):
-        vars = self.data.to_inductive().get_vars()
+        vars = self.data.eval(False).to_inductive().get_vars()
         data = self.data.subst(depth, val)
         term = self.term.subst(depth, val)
         moti = self.moti.subst(depth + len(vars[0]), val)
@@ -481,7 +519,7 @@ class Ind:
         return Ind(data, term, moti, ctrs)
 
     def uses(self, depth):
-        vars = self.data.to_inductive().get_vars()
+        vars = self.data.eval(False).to_inductive().get_vars()
         data = self.data.uses(depth)
         term = self.term.uses(depth)
         moti = self.moti.uses(depth + len(vars[0]))
@@ -510,17 +548,34 @@ class Ind:
             return term.eval(eras)
 
     def check(self, context):
-        # TODO: check type of self.term
+        # Check term type
+        indices = self.get_indices(context)
+        term_t = self.term.check(context)
+        data_t = self.data.eval(False).derive_type()
+        for idx in indices:
+            data_t = data_t.body.subst(0, idx)
+        if not term_t.eval(True).equal(data_t.eval(True)):
+            error_str = "Type mismatch.\n"
+            error_str += "- Expect: " + data_t.eval(True).to_string(context) + "\n"
+            error_str += "- Actual: " + term_t.eval(True).to_string(context) + "\n"
+            error_str += "- Context:\n" + context.show()
+            raise(Exception(error_str))
+
+        # Check case types
         (moti, cses) = self.build()
         for (cse_name, cse_term, cse_type) in cses:
             expect = cse_type
             actual = cse_term.check(context)
             if not expect.eval(True).equal(actual.eval(True)):
-                raise(Exception("Type mismatch on '" + cse_name + "' case:\n"
-                    + "- Expect : " + expect.eval(True).to_string(context) + "\n"
-                    + "- Actual : " + actual.eval(True).to_string(context)))
+                error_str = "Type mismatch on '" + cse_name + "' case.\n"
+                error_str += "- Expect: " + expect.eval(True).to_string(context) + "\n"
+                error_str += "- Actual: " + actual.eval(True).to_string(context) + "\n"
+                error_str += "- Context:\n" + context.show()
+                raise(Exception(error_str))
+
+        # Build return type
         result = moti.eval(False)
-        for idx in self.get_indices(context):
+        for idx in indices:
             result = result.body.subst(0, idx)
         result = result.body.subst(0, self.term)
         return result
@@ -533,7 +588,7 @@ def string_to_term(code):
         return char in " \t\n"
 
     def is_name_char(char):
-        return char in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+        return char in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_~"
 
     def skip_spaces():
         while Cursor.index < len(code) and is_space(code[Cursor.index]):
@@ -605,7 +660,7 @@ def string_to_term(code):
         elif match("def"):
             name = parse_name()
             term = parse_term(context)
-            body = parse_term(context.extend((name, term)))
+            body = parse_term(context.extend((name, Nik(name, term))))
             return body
 
         # Data
@@ -627,7 +682,7 @@ def string_to_term(code):
             return Idt(name, type, ctrs)
 
         # IDT Type
-        elif match("!"):
+        elif match("&"):
             data = parse_term(context)
             return Ity(data)
 
@@ -641,7 +696,7 @@ def string_to_term(code):
         # IDT Induction
         elif match("?"):
             data = parse_term(context)
-            vars = data.to_inductive().get_vars()
+            vars = data.eval(False).to_inductive().get_vars()
             term = parse_term(context)
             skip = parse_exact("->")
             moti = parse_term(reduce(lambda ctx, var: ctx.extend((var, None)), vars[0], context))
@@ -690,8 +745,8 @@ test = """
 
     -- Inducton on Bool
     def bool_induction
-        [b : !Bool]
-        [P : {b : !Bool} Type]
+        [b : &Bool]
+        [P : {b : &Bool} Type]
         [T : (P @Bool.true)]
         [F : (P @Bool.false)]
         ? Bool b -> (P self)
@@ -699,8 +754,8 @@ test = """
         | false  => F ;
 
     -- Bool negation
-    def not [b : !Bool]
-        ? Bool b -> !Bool
+    def not [b : &Bool]
+        ? Bool b -> &Bool
         | true   => @Bool.false
         | false  => @Bool.true;
 
@@ -719,40 +774,40 @@ test = """
 
     -- Nat induction
     def nat_induction
-        [n : !Nat]
-        [P : {n : !Nat} Type]
-        [S : {-n : !Nat} {p : (P n)} (P (@Nat.succ n))]
+        [n : &Nat]
+        [P : {n : &Nat} Type]
+        [S : {-n : &Nat} {p : (P n)} (P (@Nat.succ n))]
         [Z : (P @Nat.zero)]
         ? Nat n -> (P self)
-        | succ  => (S -pred_index pred)
+        | succ  => (S -pred ~pred)
         | zero  => Z ;
 
     -- Nat addition
-    def add [a : !Nat]
-        ? Nat a -> {b : !Nat} !Nat
-        | succ  => [b : !Nat] (@Nat.succ (pred b))
-        | zero  => [b : !Nat] b ;
+    def add [a : &Nat]
+        ? Nat a -> {b : &Nat} &Nat
+        | succ  => [b : &Nat] (@Nat.succ (~pred b))
+        | zero  => [b : &Nat] b ;
 
     -- Nat multiplication
-    def mul [n : !Nat] [m : !Nat]
-        ? Nat n -> !Nat
-        | succ  => (add m pred)
+    def mul [n : &Nat] [m : &Nat]
+        ? Nat n -> &Nat
+        | succ  => (add m ~pred)
         | zero  => @Nat.zero ;
 
     def Zup
-        < Zup : {a : !Bool} {b : !Bool} Type
+        < Zup : {a : &Bool} {b : &Bool} Type
         | zip : (Zup @Bool.false @Bool.true) 
         | zap : (Zup @Bool.true @Bool.false) >
 
     def zup_test
-        ? Zup @Zup.zip -> (? Bool b -> Type | true => !Bool | false => !Nat ;)
+        ? Zup @Zup.zip -> (? Bool b -> Type | true => &Bool | false => &Nat ;)
         | zip => @Bool.true
         | zap => @Nat.zero ;
 
     -- Example type indexed on Nat (just Vectors without elements)
     def Ind
-        < Ind  : {n : !Nat} Type
-        | step : {-n : !Nat} {i : (Ind n)} (Ind (@Nat.succ n))
+        < Ind  : {n : &Nat} Type
+        | step : {-n : &Nat} {i : (Ind n)} (Ind (@Nat.succ n))
         | base : (Ind @Nat.zero) >
 
     -- Ind examples
@@ -763,9 +818,9 @@ test = """
     def i4 (@Ind.step -n3 i3)
 
     -- From Nat to Ind
-    def nat_to_ind [n : !Nat]
-        ? Nat n -> (!Ind self)
-        | succ  => (@Ind.step -pred_index pred)
+    def nat_to_ind [n : &Nat]
+        ? Nat n -> (&Ind self)
+        | succ  => (@Ind.step -pred ~pred)
         | zero  => @Ind.base ;
 
     -- Equality
@@ -774,39 +829,42 @@ test = """
         | refl : {-A : Type} {t : A} (Eq -A t t) >
 
     -- Symmetry of equality
-    def sym [A : Type] [a : A] [b : A] [e : (!Eq -A a b)]
-        ? Eq e -> (!Eq -A b a)
+    def sym [A : Type] [a : A] [b : A] [e : (&Eq -A a b)]
+        ? Eq e -> (&Eq -A b a)
         | refl => (@Eq.refl -A t) ;
 
     -- Congruence of equality
-    def cong [A : Type] [B : Type] [x : A] [y : A] [e : (!Eq -A x y)]
-        ? Eq e -> {f : {x : A} B} (!Eq B (f a) (f b))
+    def cong [A : Type] [B : Type] [x : A] [y : A] [e : (&Eq -A x y)]
+        ? Eq e -> {f : {x : A} B} (&Eq B (f a) (f b))
         | refl => [f : {x : A} B] (@Eq.refl -B (f t)) ;
 
     -- Substitution of equality
-    def subst [A : Type] [x : A] [y : A] [e : (!Eq -A x y)]
+    def subst [A : Type] [x : A] [y : A] [e : (&Eq -A x y)]
         ? Eq e -> {P : {x : A} Type} {px : (P a)} (P b)
         | refl => [P : {x : A} Type] [px : (P t)] px ;
 
     -- n + 0 == n
-    def add_n_zero [n : !Nat]
-        ? Nat n -> (!Eq -!Nat (add self @Nat.zero) self)
-        | succ  => (cong !Nat !Nat (add pred_index @Nat.zero) pred_index pred [x : !Nat] (@Nat.succ x))
-        | zero  => (@Eq.refl -!Nat @Nat.zero);
+    def add_n_zero [n : &Nat]
+        ? Nat n -> (&Eq -&Nat (add self @Nat.zero) self)
+        | succ  => (cong &Nat &Nat (add pred @Nat.zero) pred ~pred [x : &Nat] (@Nat.succ x))
+        | zero  => (@Eq.refl -&Nat @Nat.zero);
 
     -- n + S(m) == S(n + m)
-    def add_n_succ_m [n : !Nat]
-        ? Nat n -> {m : !Nat} (!Eq -!Nat (add self (@Nat.succ m)) (@Nat.succ (add self m)))
-        | succ => [m : !Nat]
-            (cong !Nat !Nat
-                (add pred_index (@Nat.succ m))
-                (@Nat.succ (add pred_index m))
-                (pred m)
+    def add_n_succ_m [n : &Nat]
+        ? Nat n -> {m : &Nat} (&Eq -&Nat (add self (@Nat.succ m)) (@Nat.succ (add self m)))
+        | succ => [m : &Nat]
+            (cong &Nat &Nat
+                (add pred (@Nat.succ m))
+                (@Nat.succ (add pred m))
+                (~pred m)
                 @Nat.succ)
-        | zero  => [m : !Nat]
-            (@Eq.refl -!Nat (@Nat.succ m));
+        | zero  => [m : &Nat]
+            (@Eq.refl -&Nat (@Nat.succ m));
 
-    add_n_succ_m
+    (the 
+        -- ∀ n m . n + S(m) == S(n + m)
+        {n : &Nat} {m : &Nat} (&Eq -&Nat (add n (@Nat.succ m)) (@Nat.succ (add n m)))
+        add_n_succ_m)
 """
 
 def test_all():
@@ -816,13 +874,14 @@ def test_all():
     print term.to_string(Context())
     print ""
 
-    print "Inferred type:"
-    #print term.check(Context()).eval(False).to_string(Context())
-    print term.check(Context()).eval(True).to_string(Context())
-    print ""
+    try:
+        print "Inferred type:"
+        print term.check(Context()).eval(True).to_string(Context())
+        print ""
+    except Exception as err:
+        print err
 
     print "Normal form:"
-    #print term.eval(False).to_string(Context())
     print term.eval(True).to_string(Context())
     print ""
 
