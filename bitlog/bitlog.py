@@ -80,7 +80,7 @@ class Blockchain:
         if (self.tip == block.header.previous) and (block.validate()):
             blkRoot = block.root()
             if self.chain.has_key(blkRoot):
-                print("WARNING! Collision detected!") #TODO: treat collisions
+                print("WARNING! Hash collision detected!") #TODO: treat collisions
             else:
                 self.chain[blkRoot] = block
                 self.tip = blkRoot
@@ -93,7 +93,7 @@ class Blockchain:
 
 def main():
     print("Hash testing:")
-    print("Keccac \"\" hash:")
+    print("Keccac \"\" hash ="),
     print binascii.hexlify(Keccak(1088, 512, "", 0x01, 256//8))
     print
 
