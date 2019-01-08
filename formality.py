@@ -26,19 +26,31 @@ class Context:
                     name += "'"
             return name
 
-    def find_by_name(self, name, skip):
-        for i in xrange(len(self.list)):
-            if self.list[i][0] == name:
-                if skip == 0:
-                    return self.list[i]
-                else:
+    def find_by_name(self, find_name, skip, only_data):
+        for (name, term) in self.list:
+            if find_name == name:
+                if only_data and not isinstance(term.eval(False), Idt):
+                    pass
+                elif skip > 0:
                     skip = skip - 1
+                else:
+                    return (name, term)
         return None
 
     def show(self):
-        text = ""
-        for (name, value) in reversed(self.list):
-            text += "-- " + name + " : " + value.to_string(self) + "\n"
+        if len(self.list) == 0:
+            return "(empty)\n"
+        else:
+            text = ""
+            for (name, value) in reversed(self.list):
+                text += "-- " + name + " : " + value.to_string(self) + "\n"
+            return text
+
+    def show_mismatch(self, expect, actual, value):
+        text  = "Type mismatch on " + value + ".\n"
+        text += "- Expect: " + expect.to_string(self) + "\n"
+        text += "- Actual: " + actual.to_string(self) + "\n"
+        text += "- Context:\n" + self.show()
         return text
 
 class Nik:
@@ -61,8 +73,8 @@ class Nik:
     def equal(self, other):
         return self.term.equal(other)
 
-    def eval(self, eras):
-        return self.term.eval(eras)
+    def eval(self, erase):
+        return self.term.eval(erase)
 
     def check(self, context):
         return self.term.check(context)
@@ -86,7 +98,7 @@ class Typ:
     def equal(self, other):
         return isinstance(other, Typ)
 
-    def eval(self, eras):
+    def eval(self, erase):
         return Typ()
 
     def check(self, context):
@@ -100,22 +112,45 @@ class All:
         self.body = body
 
     def to_string(self, context):
-        return "{" + ("-" if self.eras else "") + self.name + " : " + self.bind.to_string(context) + "} " + self.body.to_string(context.extend((self.name, self.bind)))
+        eras = ("-" if self.eras else "")
+        name = self.name
+        bind = " : " + self.bind.to_string(context)
+        body = self.body.to_string(context.extend((self.name, self.bind)))
+        return "{" + eras + name + bind + "} " + body
 
     def shift(self, depth, inc):
-        return All(self.eras, self.name, self.bind.shift(depth, inc), self.body.shift(depth + 1, inc))
+        eras = self.eras
+        name = self.name 
+        bind = self.bind.shift(depth, inc)
+        body = self.body.shift(depth + 1, inc)
+        return All(eras, name, bind, body)
 
     def subst(self, depth, val):
-        return All(self.eras, self.name, self.bind.subst(depth, val), self.body.subst(depth + 1, val and val.shift(0, 1)))
+        eras = self.eras
+        name = self.name
+        bind = self.bind.subst(depth, val)
+        body = self.body.subst(depth + 1, val and val.shift(0, 1))
+        return All(eras, name, bind, body)
 
     def uses(self, depth):
-        return self.bind.uses(depth) + self.body.uses(depth + 1)
+        bind = self.bind.uses(depth)
+        body = self.body.uses(depth + 1)
+        return bind + body
 
     def equal(self, other):
-        return isinstance(other, All) and self.eras == other.eras and self.bind.equal(other.bind) and self.body.equal(other.body)
+        if isinstance(other, All):
+            eras = self.eras == other.eras
+            bind = self.bind.equal(other.bind)
+            body = self.body.equal(other.body)
+            return eras and bind and body
+        return False
 
-    def eval(self, eras):
-        return All(self.eras, self.name, self.bind.eval(eras), self.body.eval(eras))
+    def eval(self, erase):
+        eras = self.eras
+        name = self.name
+        bind = self.bind.eval(erase)
+        body = self.body.eval(erase)
+        return All(eras, name, bind, body)
 
     def check(self, context):
         bind_v = self.bind
@@ -133,28 +168,47 @@ class Lam:
         self.body = body
 
     def to_string(self, context):
-        if self.bind is None:
-            return "[" + self.name + "] " + self.body.to_string(context.extend((self.name, None)))
-        else:
-            return "[" + ("-" if self.eras else "") + self.name + " : " + self.bind.to_string(context) + "] " + self.body.to_string(context.extend((self.name, self.bind)))
+        eras = "-" if self.eras else ""
+        name = self.name
+        bind = " : " + self.bind.to_string(context) if self.bind else ""
+        body = self.body.to_string(context.extend((self.name, None)))
+        return "[" + eras + name + bind + "] " + body
 
     def shift(self, depth, inc):
-        return Lam(self.eras, self.name, self.bind and self.bind.shift(depth, inc), self.body.shift(depth + 1, inc))
+        eras = self.eras
+        name = self.name
+        bind = self.bind and self.bind.shift(depth, inc)
+        body = self.body.shift(depth + 1, inc)
+        return Lam(eras, name, bind, body)
 
     def subst(self, depth, val):
-        return Lam(self.eras, self.name, self.bind and self.bind.subst(depth, val), self.body.subst(depth + 1, val and val.shift(0, 1)))
+        eras = self.eras
+        name = self.name
+        bind = self.bind and self.bind.subst(depth, val)
+        body = self.body.subst(depth + 1, val and val.shift(0, 1))
+        return Lam(eras, name, bind, body)
 
     def uses(self, depth):
-        return self.bind.uses(depth) + self.body.uses(depth + 1)
+        uses = self.bind.uses(depth)
+        body = self.body.uses(depth + 1)
+        return uses + body
 
     def equal(self, other):
-        return isinstance(other, Lam) and self.eras == other.eras and self.body.equal(other.body)
+        if isinstance(other, Lam):
+            eras = self.eras == other.eras
+            body = self.body.equal(other.body)
+            return eras and body
+        return False
 
-    def eval(self, eras):
-        if eras and self.eras:
-            return self.body.eval(eras).subst(0, None)
+    def eval(self, erase):
+        if erase and self.eras:
+            return self.body.eval(erase).subst(0, None)
         else:
-            return Lam(self.eras, self.name, None if eras else self.bind.eval(eras), self.body.eval(eras))
+            eras = self.eras
+            name = self.name
+            bind = None if erase else self.bind.eval(erase)
+            body = self.body.eval(erase)
+            return Lam(eras, name, bind, body)
 
     def check(self, context):
         if self.bind is None:
@@ -182,39 +236,49 @@ class App:
         return text
 
     def shift(self, depth, inc):
-        return App(self.eras, self.func.shift(depth, inc), self.argm.shift(depth, inc))
+        eras = self.eras
+        func = self.func.shift(depth, inc)
+        argm = self.argm.shift(depth, inc)
+        return App(eras, func, argm)
 
     def subst(self, depth, val):
-        return App(self.eras, self.func.subst(depth, val), self.argm.subst(depth, val))
+        eras = self.eras
+        func = self.func.subst(depth, val)
+        argm = self.argm.subst(depth, val)
+        return App(eras, func, argm)
 
     def uses(self, depth):
         return self.func.uses(depth) + self.argm.uses(depth)
 
     def equal(self, other):
-        return isinstance(other, App) and self.eras == other.eras and self.func.equal(other.func) and self.argm.equal(other.argm)
+        if isinstance(other, App):
+            eras = self.eras == other.eras
+            func = self.func.equal(other.func)
+            argm = self.argm.equal(other.argm)
+            return eras and func and argm
+        return False
 
-    def eval(self, eras):
-        if eras and self.eras:
-            return self.func.eval(eras)
+    def eval(self, erase):
+        if erase and self.eras:
+            return self.func.eval(erase)
         else:
-            func_v = self.func.eval(eras)
+            func_v = self.func.eval(erase)
             if not isinstance(func_v, Lam):
-                return App(self.eras, func_v, self.argm.eval(eras))
-            return func_v.body.subst(0, self.argm).eval(eras)
+                return App(self.eras, func_v, self.argm.eval(erase))
+            return func_v.body.subst(0, self.argm).eval(erase)
 
     def check(self, context):
         func_t = self.func.check(context)
         argm_t = self.argm.check(context)
-        if not isinstance(func_t.eval(True), All):
+        func_T = func_t.eval(True)
+        expect = func_T.bind
+        actual = argm_t.eval(True)
+        if not isinstance(func_T, All):
             raise(Exception("Non-function application. Context:\n" + context.show()))
-        if func_t.eval(True).eras != self.eras:
-            raise(Exception("Erasure doesn't match on application. Context:\n" + context.show()))
-        if not func_t.eval(True).bind.equal(argm_t.eval(True)):
-            error_str = "Type mismatch on application " + self.to_string(context) + ".\n"
-            error_str += "- Expect: " + func_t.bind.eval(True).to_string(context) + "\n"
-            error_str += "- Actual: " + argm_t.eval(True).to_string(context) + "\n"
-            error_str += "- Context:\n" + context.show()
-            raise(Exception(error_str))
+        if func_T.eras != self.eras:
+            raise(Exception(context.show_mismatch(expect, actual, "erasure")))
+        if not expect.equal(actual):
+            raise(Exception(context.show_mismatch(expect, actual, self.to_string(context) + " application")))
         return func_t.eval(False).body.subst(0, self.argm)
 
 class Var:
@@ -241,7 +305,7 @@ class Var:
     def equal(self, other):
         return isinstance(other, Var) and self.index == other.index
 
-    def eval(self, eras):
+    def eval(self, erase):
         return Var(self.index)
 
     def check(self, context):
@@ -266,48 +330,63 @@ class Dat:
     def equal(self, other):
         return isinstance(other, Dat)
 
-    def eval(self, eras):
+    def eval(self, erase):
         return Dat()
 
     def check(self, context):
         return Typ()
 
 class Idt:
-    def __init__(self, name, type, ctrs):
+    def __init__(self, name, moti, ctrs):
         self.name = name # string
-        self.type = type # term
+        self.moti = moti # term
         self.ctrs = ctrs # [(string, term)]
 
     def to_string(self, context):
-        result = "<" + self.name + " : " + self.type.to_string(context)
-        for (i, (name, type)) in enumerate(self.ctrs):
-            result += " | " + name + " : " + type.to_string(context.extend((self.name, self.type)))
-        return result + ">"
+        text = "($ " + self.name + " : " + self.moti.to_string(context)
+        for (i, (ctr_name, ctr_moti)) in enumerate(self.ctrs):
+            text += " | " + ctr_name + " : " + ctr_moti.to_string(context.extend((self.name, self.moti)))
+        return text + " ;)"
 
     def shift(self, depth, inc):
-        return Idt(self.name, self.type.shift(depth, inc), [(name, type.shift(depth + 1, inc)) for (name, type) in self.ctrs])
+        name = self.name
+        moti = self.moti.shift(depth, inc)
+        ctrs = [(ctr_name, ctr_type.shift(depth + 1, inc)) for (ctr_name, ctr_type) in self.ctrs]
+        return Idt(name, moti, ctrs)
 
     def subst(self, depth, val):
-        return Idt(self.name, self.type.subst(depth, val), [(name, type.subst(depth + 1, val.shift(0, 1))) for (name, type) in self.ctrs])
+        name = self.name
+        moti = self.moti.subst(depth, val)
+        ctrs = [(ctr_name, ctr_type.subst(depth + 1, val.shift(0, 1))) for (ctr_name, ctr_type) in self.ctrs]
+        return Idt(name, moti, ctrs)
 
     def uses(self, depth):
-        return self.type.uses(depth) + sum([type.uses(depth + 1) for (_, type) in self.ctrs])
+        moti = self.moti.uses(depth)
+        ctrs = sum([ctr_type.uses(depth + 1) for (_, ctr_type) in self.ctrs])
+        return moti + ctrs
 
     def equal(self, other):
-        return isinstance(other, Idt) and self.type.equal(other.type) and all([a[1].equal(b[1]) for (a,b) in zip(self.ctrs, other.ctrs)])
+        if isinstance(other, Idt):
+            moti = self.moti.equal(other.moti)
+            ctrs = all([a[1].equal(b[1]) for (a,b) in zip(self.ctrs, other.ctrs)])
+            return moti and ctrs
+        return False
 
-    def eval(self, eras):
-        return Idt(self.name, self.type.eval(eras), [(name, type.eval(eras)) for (name, type) in self.ctrs])
+    def eval(self, erase):
+        name = self.name
+        moti = self.moti.eval(erase)
+        ctrs = [(ctr_name, ctr_type.eval(erase)) for (ctr_name, ctr_type) in self.ctrs]
+        return Idt(name, moti, ctrs)
 
     def check(self, context):
         return Dat()
 
     def get_vars(self):
-        type_vars = []
-        self_type = self.type
-        while isinstance(self_type, All):
-            type_vars.append(self_type.name)
-            self_type = self_type.body
+        moti_vars = []
+        self_moti = self.moti
+        while isinstance(self_moti, All):
+            moti_vars.append(self_moti.name)
+            self_moti = self_moti.body
         ctrs_vars = []
         for (ctr_name, ctr_type) in self.ctrs:
             ctr_vars = []
@@ -315,32 +394,45 @@ class Idt:
                 ctr_vars.append(ctr_type.name)
                 ctr_type = ctr_type.body
             ctrs_vars.append((ctr_name, ctr_vars))
-        return (type_vars, ctrs_vars)
+        return (moti_vars, ctrs_vars)
 
     def derive_type(self):
         def build_indices(depth, indices_type):
             if isinstance(indices_type, All):
-                return Lam(indices_type.eras, indices_type.name, indices_type.bind, build_indices(depth + 1, indices_type.body))
+                eras = indices_type.eras
+                name = indices_type.name
+                bind = indices_type.bind
+                body = build_indices(depth + 1, indices_type.body)
+                return Lam(eras, name, bind, body)
             else:
                 return build_motive(depth)
 
         def build_motive(depth):
-            return All(True, self.name, self.type.shift(0, depth), build_constructor(depth + 1, 0))
+            eras = True
+            name = self.name
+            bind = self.moti.shift(0, depth)
+            body = build_constructor(depth + 1, 0)
+            return All(eras, name, bind, body)
 
         def build_constructor(depth, num):
             if num < len(self.ctrs):
-                (name, type) = self.ctrs[num]
-                return All(False, name, type.shift(1, depth).subst(0, Var(num)), build_constructor(depth + 1, num + 1))
+                (ctr_name, ctr_type) = self.ctrs[num]
+                eras = False
+                name = ctr_name
+                bind = ctr_type.shift(1, depth).subst(0, Var(num))
+                body = build_constructor(depth + 1, num + 1)
+                return All(eras, name, bind, body)
             else:
-                return build_return_type(depth, self.type, 0, Var(len(self.ctrs)))
+                return build_return_type(depth, self.moti, 0, Var(len(self.ctrs)))
 
         def build_return_type(depth, indices_type, index, return_type):
             if isinstance(indices_type, All):
-                return build_return_type(depth, indices_type.body, index + 1, App(indices_type.eras, return_type, Var(depth - index - 1)))
+                return_type = App(indices_type.eras, return_type, Var(depth - index - 1))
+                return build_return_type(depth, indices_type.body, index + 1, return_type)
             else:
                 return return_type
 
-        return build_indices(0, self.type)
+        return build_indices(0, self.moti)
 
     def derive_constructor(self, name):
         for (ctr_index, (ctr_name, ctr_type)) in enumerate(self.ctrs):
@@ -349,10 +441,13 @@ class Idt:
 
         def build_lambdas(depth, fields_type):
             if isinstance(fields_type, All):
-                return Lam(fields_type.eras, fields_type.name, fields_type.bind, build_lambdas(depth + 1, fields_type.body))
+                eras = fields_type.eras
+                name = fields_type.name
+                bind = fields_type.bind
+                body = build_lambdas(depth + 1, fields_type.body)
+                return Lam(eras, name, bind, body)
             else:
                 return build_body(depth, ctr_type, 0, Var(len(self.ctrs) - ctr_index - 1))
-                #return build_lambda_headers(depth, build_idt_type(fields_type))
 
         def build_body(depth, fields_type, field_index, term):
             if isinstance(fields_type, All):
@@ -362,7 +457,8 @@ class Idt:
                     field = App(True, field, Var(len(self.ctrs)))
                     for i in xrange(len(self.ctrs)):
                         field = App(False, field, Var(len(self.ctrs) - i - 1))
-                return build_body(depth, fields_type.body, field_index + 1, App(fields_type.eras, term, field))
+                body = App(fields_type.eras, term, field)
+                return build_body(depth, fields_type.body, field_index + 1, body)
             else:
                 return term
 
@@ -371,7 +467,11 @@ class Idt:
     def to_inductive(self):
         def build_motive(depth, motive_type, self_type):
             if isinstance(motive_type, All):
-                return All(motive_type.eras, motive_type.name, motive_type.bind, build_motive(depth + 1, motive_type.body, App(motive_type.eras, self_type.shift(0, 1), Var(0))))
+                eras = motive_type.eras
+                name = motive_type.name
+                bind = motive_type.bind
+                body = build_motive(depth + 1, motive_type.body, App(motive_type.eras, self_type.shift(0, 1), Var(0)))
+                return All(eras, name, bind, body)
             else:
                 return All(False, "self", self_type, motive_type)
 
@@ -379,20 +479,35 @@ class Idt:
             if isinstance(fields_type, All):
                 # TODO: currently only works for very simple recursive ocurrences
                 if fields_type.bind.uses(depth) > 0:
-                    body = build_constructor(depth + 2, fields_type.body.shift(0, 1), App(fields_type.eras, self_value.shift(0, 2), Var(1)))
-                    all1 = All(fields_type.eras, "~" + fields_type.name, App(False, fields_type.bind.shift(0, 1), Var(0)), body)
-                    all0 = All(True, fields_type.name, fields_type.bind.subst(depth, self.derive_type().shift(0, depth)), all1)
-                    return all0
+                    eras_0 = True
+                    name_0 = fields_type.name
+                    bind_0 = fields_type.bind.subst(depth, self.derive_type().shift(0, depth))
+                    eras_1 = fields_type.eras
+                    name_1 = "~" + fields_type.name
+                    bind_1 = App(False, fields_type.bind.shift(0, 1), Var(0))
+                    newfty = fields_type.body.shift(0, 1)
+                    newval = App(fields_type.eras, self_value.shift(0, 2), Var(1))
+                    body_1 = build_constructor(depth + 2, newfty, newval)
+                    return All(eras_0, name_0, bind_0, All(eras_1, name_1, bind_1, body_1))
                 else:
-                    body = build_constructor(depth + 1, fields_type.body, App(fields_type.eras, self_value.shift(0, 1), Var(0)))
-                    all0 = All(fields_type.eras, fields_type.name, fields_type.bind, body)
-                    return all0
+                    eras_0 = fields_type.eras
+                    name_0 = fields_type.name
+                    bind_0 = fields_type.bind
+                    newfty = fields_type.body
+                    newval = App(fields_type.eras, self_value.shift(0, 1), Var(0))
+                    body_0 = build_constructor(depth + 1, newfty, newval)
+                    return All(eras_0, name_0, bind_0, body_0)
             else:
                 return App(False, fields_type, self_value)
-        
-        moti = build_motive(0, self.type, self.derive_type())
-        ctrs = [(ctr_name, build_constructor(0, ctr_type, self.derive_constructor(ctr_name))) for (ctr_name, ctr_type) in self.ctrs]
-        return Idt(self.name + "_ind", moti, ctrs).eval(False)
+
+        ind_name = self.name + "_ind"
+        ind_moti = build_motive(0, self.moti, self.derive_type())
+        ind_ctrs = []
+        for (ctr_name, ctr_type) in self.ctrs:
+            ind_ctr_name = ctr_name
+            ind_ctr_type = build_constructor(0, ctr_type, self.derive_constructor(ctr_name))
+            ind_ctrs.append((ind_ctr_name, ind_ctr_type))
+        return Idt(ind_name, ind_moti, ind_ctrs).eval(False)
 
 class Ity:
     def __init__(self, data):
@@ -413,10 +528,10 @@ class Ity:
     def equal(self, other):
         return isinstance(other, Ity) and self.data.equal(other.data)
 
-    def eval(self, eras):
+    def eval(self, erase):
         data_v = self.data.eval(False)
         if isinstance(data_v, Idt):
-            return data_v.derive_type().eval(eras)
+            return data_v.derive_type().eval(erase)
         else:
             return Ity(data_v)
 
@@ -436,21 +551,29 @@ class Con:
         return "@" + self.data.to_string(context) + "." + self.name
 
     def shift(self, depth, inc):
-        return Con(self.data.shift(depth, inc), self.name)
+        data = self.data.shift(depth, inc)
+        name = self.name
+        return Con(data, name)
 
     def subst(self, depth, val):
-        return Con(self.data.subst(depth, val), self.name)
+        data = self.data.subst(depth, val)
+        name = self.name
+        return Con(data, name)
 
     def uses(self, depth):
         return self.data.uses(depth)
 
     def equal(self, other):
-        return isinstance(other, Con) and self.data.equal(other.data) and self.name == other.name
+        if isinstance(other, Con):
+            data = self.data.equal(other.data)
+            name = self.name == other.name
+            return data and name
+        return False
 
-    def eval(self, eras):
+    def eval(self, erase):
         data_v = self.data.eval(False)
         if isinstance(data_v, Idt):
-            return data_v.derive_constructor(self.name).eval(eras)
+            return data_v.derive_constructor(self.name).eval(erase)
         else:
             return Con(data_v, self.name)
 
@@ -470,12 +593,12 @@ class Ind:
 
     def to_string(self, context):
         vars = self.data.eval(False).to_inductive().get_vars()
-        text = "? " + self.data.to_string(context)
+        text = "(?" + self.data.to_string(context)
         text += " " + self.term.to_string(context) + " ->"
         text += " " + self.moti.to_string(reduce(lambda ctx, var: ctx.extend((var, None)), vars[0], context))
         for (i, (ctr_name, ctr_vars)) in enumerate(vars[1]):
             text += " | " + ctr_name + " => " + self.cses[i].to_string(reduce(lambda ctx, var: ctx.extend((var, None)), ctr_vars, context))
-        return text + " ;"
+        return text + " ;)"
 
     def get_indices(self, context):
         def extract(depth, term_type):
@@ -494,7 +617,7 @@ class Ind:
                 return body
         indu = self.data.eval(False).to_inductive()
         vars = indu.get_vars()
-        moti = build_term(indu.type, self.moti, len(vars[0]))
+        moti = build_term(indu.moti, self.moti, len(vars[0]))
         cses = []
         for (ctr_index, ((ctr_name, ctr_type), ctr_body)) in enumerate(zip(indu.ctrs, self.cses)):
             ctr_type = ctr_type.subst(0, moti).eval(False)
@@ -533,19 +656,19 @@ class Ind:
         ctrs = all([a.equal(b) for (a,b) in zip(self.ctrs, other.ctrs)])
         return data and term and moti and ctrs
 
-    def eval(self, eras):
-        if not eras:
-            data = self.data.eval(eras)
-            term = self.term.eval(eras)
-            moti = self.moti.eval(eras)
-            ctrs = [self.cses[i].eval(eras) for i in xrange(len(self.cses))]
+    def eval(self, erase):
+        if not erase:
+            data = self.data.eval(erase)
+            term = self.term.eval(erase)
+            moti = self.moti.eval(erase)
+            ctrs = [self.cses[i].eval(erase) for i in xrange(len(self.cses))]
             return Ind(data, term, moti, ctrs)
         else:
             (moti, cses) = self.build()
             term = App(True, self.term, moti)
             for (cse_name, cse_term, cse_type) in cses:
                 term = App(False, term, cse_term)
-            return term.eval(eras)
+            return term.eval(erase)
 
     def check(self, context):
         # Check term type
@@ -554,24 +677,18 @@ class Ind:
         data_t = self.data.eval(False).derive_type()
         for idx in indices:
             data_t = data_t.body.subst(0, idx)
-        if not term_t.eval(True).equal(data_t.eval(True)):
-            error_str = "Type mismatch.\n"
-            error_str += "- Expect: " + data_t.eval(True).to_string(context) + "\n"
-            error_str += "- Actual: " + term_t.eval(True).to_string(context) + "\n"
-            error_str += "- Context:\n" + context.show()
-            raise(Exception(error_str))
+        expect = term_t.eval(True)
+        actual = data_t.eval(True)
+        if not expect.equal(actual):
+            raise(Exception(context.show_mismatch(expect, actual, self.to_string(context))))
 
         # Check case types
         (moti, cses) = self.build()
         for (cse_name, cse_term, cse_type) in cses:
-            expect = cse_type
-            actual = cse_term.check(context)
-            if not expect.eval(True).equal(actual.eval(True)):
-                error_str = "Type mismatch on '" + cse_name + "' case.\n"
-                error_str += "- Expect: " + expect.eval(True).to_string(context) + "\n"
-                error_str += "- Actual: " + actual.eval(True).to_string(context) + "\n"
-                error_str += "- Context:\n" + context.show()
-                raise(Exception(error_str))
+            expect = cse_type.eval(True)
+            actual = cse_term.check(context).eval(True)
+            if not expect.equal(actual):
+                raise(Exception(context.show_mismatch(expect, actual, self.to_string(context) + " case")))
 
         # Build return type
         result = moti.eval(False)
@@ -603,9 +720,15 @@ def string_to_term(code):
             return True
         return False
 
+    def error(text):
+        text += "This is the relevant code:\n\n<<<"
+        text += code[Cursor.index - 64 : Cursor.index] + "<<<HERE>>>"
+        text += code[Cursor.index : Cursor.index + 64] + ">>>"
+        raise(Exception(text))
+
     def parse_exact(string):
         if not match(string):
-            raise(Exception("Parse error, expected '" + str(string) + "' at index " + str(Cursor.index) + "."))
+            error("Parse error, expected '" + string + "'.\n")
         
     def parse_name():
         skip_spaces()
@@ -615,19 +738,19 @@ def string_to_term(code):
             Cursor.index += 1
         return name
         
-    def parse_term(context):
+    def parse_term(context, only_data):
         # Comment
         if match("--"):
             while Cursor.index < len(code) and code[Cursor.index] != "\n":
                 Cursor.index += 1
-            return parse_term(context)
+            return parse_term(context, False)
 
         # Application
         elif match("("):
-            func = parse_term(context)
+            func = parse_term(context, False)
             while Cursor.index < len(code) and not match(")"):
                 eras = match("-")
-                argm = parse_term(context)
+                argm = parse_term(context, False)
                 func = App(eras, func, argm)
                 skip_spaces()
             return func
@@ -641,9 +764,9 @@ def string_to_term(code):
             eras = match("-")
             name = parse_name()
             skip = parse_exact(":")
-            bind = parse_term(context)
+            bind = parse_term(context, False)
             skip = parse_exact("}")
-            body = parse_term(context.extend((name, None)))
+            body = parse_term(context.extend((name, None)), False)
             return All(eras, name, bind, body)
 
         # Lambda
@@ -651,61 +774,73 @@ def string_to_term(code):
             eras = match("-")
             name = parse_name()
             skip = parse_exact(":")
-            bind = parse_term(context)
+            bind = parse_term(context, False)
             skip = parse_exact("]")
-            body = parse_term(context.extend((name, None)))
+            body = parse_term(context.extend((name, None)), False)
             return Lam(eras, name, bind, body)
 
         # Definition
         elif match("def"):
             name = parse_name()
-            term = parse_term(context)
-            body = parse_term(context.extend((name, Nik(name, term))))
+            term = parse_term(context, False)
+            body = parse_term(context.extend((name, term)), False)
             return body
 
         # Data
         elif match("Data"):
             return Dat()
 
-        # IDT
-        elif match("<"):
+        # IDT (inline)
+        elif match("$") or match("data"):
+            inli = code[Cursor.index - 1] == "$"
             name = parse_name()
             skip = parse_exact(":")
-            type = parse_term(context)
+            type = parse_term(context, False)
             ctrs = []
             while match("|"):
                 ctr_name = parse_name()
                 ctr_skip = parse_exact(":")
-                ctr_type = parse_term(context.extend((name, None)))
+                ctr_type = parse_term(context.extend((name, None)), False)
                 ctrs.append((ctr_name, ctr_type))
-            parse_exact(">")
-            return Idt(name, type, ctrs)
+            parse_exact(";")
+            data = Idt(name, type, ctrs)
+            # Inline declaration
+            if inli:
+                return data
+            # Global declaration (creates defs)
+            else:
+                context = context.extend((name.upper(), data))
+                context = context.extend((name, data))
+                context = context.extend((name, Ity(data)))
+                for ctr in ctrs:
+                    context = context.extend((ctr[0], Con(data, ctr[0])))
+                return parse_term(context, False)
 
         # IDT Type
         elif match("&"):
-            data = parse_term(context)
+            data = parse_term(context, True)
             return Ity(data)
 
         # IDT Constructor
         elif match("@"):
-            data = parse_term(context)
+            data = parse_term(context, True)
             skip = parse_exact(".")
             name = parse_name()
             return Con(data, name)
 
         # IDT Induction
         elif match("?"):
-            data = parse_term(context)
+            data = parse_term(context, True)
             vars = data.eval(False).to_inductive().get_vars()
-            term = parse_term(context)
+            term = parse_term(context, False)
             skip = parse_exact("->")
-            moti = parse_term(reduce(lambda ctx, var: ctx.extend((var, None)), vars[0], context))
+            moti = parse_term(reduce(lambda ctx, var: ctx.extend((var, None)), vars[0], context), False)
             cses = []
             for (ctr_name, ctr_vars) in vars[1]:
                 skip = parse_exact("|")
                 skip = parse_exact(ctr_name)
                 skip = parse_exact("=>")
-                body = parse_term(reduce(lambda ctx, var: ctx.extend((var, None)), ctr_vars, context))
+                body = parse_term(reduce(lambda ctx, var: ctx.extend((var, None)), ctr_vars, context), False)
                 cses.append(body)
             skip = parse_exact(";")
             return Ind(data, term, moti, cses)
@@ -721,12 +856,12 @@ def string_to_term(code):
             skip = 0
             while match("'"):
                 skip += 1
-            bind = context.find_by_name(name, skip)
+            bind = context.find_by_name(name, skip, only_data)
             if bind:
-                return bind[1]
-            raise(Exception("Unbound variable: '" + str(name) + "' at index " + str(Cursor.index) + "-"))
+                return Nik(name, bind[1])
+            error("Parse error, unbound variable '" + name + "'.\n")
 
-    return parse_term(Context())
+    return parse_term(Context(), False)
 
 test = """
     -- Unit
@@ -734,141 +869,129 @@ test = """
         x
 
     -- Booleans
-    def Bool
-        < Bool  : Type
-        | true  : Bool
-        | false : Bool >
-
-    -- Bool constructors
-    def true @Bool.true
-    def false @Bool.false
+    data Bool : Type
+    | true    : Bool
+    | false   : Bool;
 
     -- Inducton on Bool
     def bool_induction
-        [b : &Bool]
-        [P : {b : &Bool} Type]
-        [T : (P @Bool.true)]
-        [F : (P @Bool.false)]
+        [b : Bool]
+        [P : {b : Bool} Type]
+        [T : (P true)]
+        [F : (P false)]
         ? Bool b -> (P self)
         | true   => T
         | false  => F ;
 
     -- Bool negation
-    def not [b : &Bool]
-        ? Bool b -> &Bool
-        | true   => @Bool.false
-        | false  => @Bool.true;
+    def not [b : Bool]
+        ? Bool b -> Bool
+        | true   => false
+        | false  => true;
 
     -- Natural numbers
-    def Nat
-        < Nat  : Type
-        | succ : {pred : Nat} Nat
-        | zero : Nat >
+    data Nat : Type
+    | succ   : {pred : Nat} Nat
+    | zero   : Nat;
 
     -- Nat examples
-    def n0 @Nat.zero
-    def n1 (@Nat.succ n0)
-    def n2 (@Nat.succ n1)
-    def n3 (@Nat.succ n2)
-    def n4 (@Nat.succ n3)
+    def n0 zero
+    def n1 (succ n0)
+    def n2 (succ n1)
+    def n3 (succ n2)
+    def n4 (succ n3)
 
     -- Nat induction
     def nat_induction
-        [n : &Nat]
-        [P : {n : &Nat} Type]
-        [S : {-n : &Nat} {p : (P n)} (P (@Nat.succ n))]
-        [Z : (P @Nat.zero)]
+        [n : Nat]
+        [P : {n : Nat} Type]
+        [S : {-n : Nat} {p : (P n)} (P (succ n))]
+        [Z : (P zero)]
         ? Nat n -> (P self)
         | succ  => (S -pred ~pred)
         | zero  => Z ;
 
     -- Nat addition
-    def add [a : &Nat]
-        ? Nat a -> {b : &Nat} &Nat
-        | succ  => [b : &Nat] (@Nat.succ (~pred b))
-        | zero  => [b : &Nat] b ;
+    def add [a : Nat]
+        ? Nat a -> {b : Nat} Nat
+        | succ  => [b : Nat] (succ (~pred b))
+        | zero  => [b : Nat] b ;
 
     -- Nat multiplication
-    def mul [n : &Nat] [m : &Nat]
-        ? Nat n -> &Nat
+    def mul [n : Nat] [m : Nat]
+        ? Nat n -> Nat
         | succ  => (add m ~pred)
-        | zero  => @Nat.zero ;
+        | zero  => zero ;
 
-    def Zup
-        < Zup : {a : &Bool} {b : &Bool} Type
-        | zip : (Zup @Bool.false @Bool.true) 
-        | zap : (Zup @Bool.true @Bool.false) >
+    data Zup : {a : Bool} {b : Bool} Type
+    | zip    : (Zup false true) 
+    | zap    : (Zup true false) ;
 
     def zup_test
-        ? Zup @Zup.zip -> (? Bool b -> Type | true => &Bool | false => &Nat ;)
-        | zip => @Bool.true
-        | zap => @Nat.zero ;
+        ? Zup zip -> (? Bool b -> Type | true => Bool | false => Nat ;)
+        | zip     => true
+        | zap     => true ;
 
     -- Example type indexed on Nat (just Vectors without elements)
-    def Ind
-        < Ind  : {n : &Nat} Type
-        | step : {-n : &Nat} {i : (Ind n)} (Ind (@Nat.succ n))
-        | base : (Ind @Nat.zero) >
+    data Ind : {n : Nat} Type
+    | step   : {-n : Nat} {i : (Ind n)} (Ind (succ n))
+    | base   : (Ind zero) ;
 
     -- Ind examples
-    def i0 @Ind.base
-    def i1 (@Ind.step -n0 i0)
-    def i2 (@Ind.step -n1 i1)
-    def i3 (@Ind.step -n2 i2)
-    def i4 (@Ind.step -n3 i3)
+    def i0 base
+    def i1 (step -n0 i0)
+    def i2 (step -n1 i1)
+    def i3 (step -n2 i2)
+    def i4 (step -n3 i3)
 
     -- From Nat to Ind
-    def nat_to_ind [n : &Nat]
-        ? Nat n -> (&Ind self)
-        | succ  => (@Ind.step -pred ~pred)
-        | zero  => @Ind.base ;
+    def nat_to_ind [n : Nat]
+        ? Nat n -> (Ind self)
+        | succ  => (step -pred ~pred)
+        | zero  => base ;
 
     -- Equality
-    def Eq
-        < Eq   : {-A : Type} {a : A} {b : A} Type
-        | refl : {-A : Type} {t : A} (Eq -A t t) >
+    data Eq : {-A : Type} {a : A} {b : A} Type
+    | refl  : {-A : Type} {t : A} (Eq -A t t) ;
 
     -- Symmetry of equality
-    def sym [A : Type] [a : A] [b : A] [e : (&Eq -A a b)]
-        ? Eq e -> (&Eq -A b a)
-        | refl => (@Eq.refl -A t) ;
+    def sym [A : Type] [a : A] [b : A] [e : (Eq -A a b)]
+        ? Eq e -> (Eq -A b a)
+        | refl => (refl -A t) ;
 
     -- Congruence of equality
-    def cong [A : Type] [B : Type] [x : A] [y : A] [e : (&Eq -A x y)]
-        ? Eq e -> {f : {x : A} B} (&Eq B (f a) (f b))
-        | refl => [f : {x : A} B] (@Eq.refl -B (f t)) ;
+    def cong [A : Type] [B : Type] [x : A] [y : A] [e : (Eq -A x y)]
+        ? Eq e -> {f : {x : A} B} (Eq B (f a) (f b))
+        | refl => [f : {x : A} B] (refl -B (f t)) ;
 
     -- Substitution of equality
-    def subst [A : Type] [x : A] [y : A] [e : (&Eq -A x y)]
+    def subst [A : Type] [x : A] [y : A] [e : (Eq -A x y)]
         ? Eq e -> {P : {x : A} Type} {px : (P a)} (P b)
         | refl => [P : {x : A} Type] [px : (P t)] px ;
 
     -- n + 0 == n
-    def add_n_zero [n : &Nat]
-        ? Nat n -> (&Eq -&Nat (add self @Nat.zero) self)
-        | succ  => (cong &Nat &Nat (add pred @Nat.zero) pred ~pred [x : &Nat] (@Nat.succ x))
-        | zero  => (@Eq.refl -&Nat @Nat.zero);
+    def add_n_zero [n : Nat]
+        ? Nat n -> (Eq -Nat (add self zero) self)
+        | succ  => (cong Nat Nat (add pred zero) pred ~pred [x : Nat] (succ x))
+        | zero  => (refl -Nat zero);
 
     -- n + S(m) == S(n + m)
-    def add_n_succ_m [n : &Nat]
-        ? Nat n -> {m : &Nat} (&Eq -&Nat (add self (@Nat.succ m)) (@Nat.succ (add self m)))
-        | succ => [m : &Nat]
-            (cong &Nat &Nat
-                (add pred (@Nat.succ m))
-                (@Nat.succ (add pred m))
-                (~pred m)
-                @Nat.succ)
-        | zero  => [m : &Nat]
-            (@Eq.refl -&Nat (@Nat.succ m));
+    def add_n_succ_m [n : Nat]
+        ? Nat n -> {m : Nat} (Eq -Nat (add self (succ m)) (succ (add self m)))
+        | succ  => [m : Nat] (cong Nat Nat (add pred (succ m)) (succ (add pred m)) (~pred m) succ)
+        | zero  => [m : Nat] (refl -Nat (succ m));
 
     (the 
-        -- ∀ n m . n + S(m) == S(n + m)
-        {n : &Nat} {m : &Nat} (&Eq -&Nat (add n (@Nat.succ m)) (@Nat.succ (add n m)))
+        {n : Nat} {m : Nat} (Eq -Nat (add n (succ m)) (succ (add n m)))
         add_n_succ_m)
 """
 
 def test_all():
-    term = string_to_term(test)
+    try:
+        term = string_to_term(test)
+    except Exception as err:
+        print err
+        return
 
     print "Input term:"
     print term.to_string(Context())
