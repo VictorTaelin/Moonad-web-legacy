@@ -276,7 +276,7 @@ class App:
         if not isinstance(func_T, All):
             raise(Exception("Non-function application. Context:\n" + context.show()))
         if func_T.eras != self.eras:
-            raise(Exception(context.show_mismatch(expect, actual, "erasure")))
+            raise(Exception("Mismatched erasure on " + self.to_string(context) + "."))
         if not expect.equal(actual):
             raise(Exception(context.show_mismatch(expect, actual, self.to_string(context) + " application")))
         return func_t.eval(False).body.subst(0, self.argm)
@@ -294,11 +294,12 @@ class Var:
     def subst(self, depth, val):
         if depth == self.index:
             if val is None:
+                return App(False,Typ(),Typ())
                 raise(Exception("Use of erased variable."))
             else:
                 return val
         return Var(self.index - (1 if self.index > depth else 0))
-
+        
     def uses(self, depth):
         return 1 if depth == self.index else 0
 
@@ -680,7 +681,7 @@ class Ind:
         expect = term_t.eval(True)
         actual = data_t.eval(True)
         if not expect.equal(actual):
-            raise(Exception(context.show_mismatch(expect, actual, self.to_string(context))))
+            raise(Exception(context.show_mismatch(expect, actual, "term of " + self.to_string(context))))
 
         # Check case types
         (moti, cses) = self.build()
@@ -688,7 +689,7 @@ class Ind:
             expect = cse_type.eval(True)
             actual = cse_term.check(context).eval(True)
             if not expect.equal(actual):
-                raise(Exception(context.show_mismatch(expect, actual, self.to_string(context) + " case")))
+                raise(Exception(context.show_mismatch(expect, actual, "case " + cse_name + " of " + self.to_string(context))))
 
         # Build return type
         result = moti.eval(False)
@@ -903,11 +904,11 @@ test = """
 
     -- Nat induction
     def nat_induction
-        [n : Nat]
-        [P : {n : Nat} Type]
-        [S : {-n : Nat} {p : (P n)} (P (succ n))]
-        [Z : (P zero)]
-        ? Nat n -> (P self)
+        [n  : Nat]
+        [-P : {-n : Nat} Type]
+        [S  : {-n : Nat} {p : (P -n)} (P -(succ n))]
+        [Z  : (P -zero)]
+        ? Nat n -> (P -self)
         | succ  => (S -pred ~pred)
         | zero  => Z ;
 
@@ -952,38 +953,45 @@ test = """
 
     -- Equality
     data Eq : {-A : Type} {a : A} {b : A} Type
-    | refl  : {-A : Type} {t : A} (Eq -A t t) ;
+    | refl  : {-A : Type} {-t : A} (Eq -A t t) ;
 
     -- Symmetry of equality
-    def sym [A : Type] [a : A] [b : A] [e : (Eq -A a b)]
+    def sym [-A : Type] [-a : A] [-b : A] [e : (Eq -A a b)]
         ? Eq e -> (Eq -A b a)
-        | refl => (refl -A t) ;
+        | refl => (refl -A -t) ;
 
     -- Congruence of equality
-    def cong [A : Type] [B : Type] [x : A] [y : A] [e : (Eq -A x y)]
-        ? Eq e -> {f : {x : A} B} (Eq B (f a) (f b))
-        | refl => [f : {x : A} B] (refl -B (f t)) ;
+    def cong [-A : Type] [-B : Type] [-x : A] [-y : A] [e : (Eq -A x y)]
+        ? Eq e -> {-f : {x : A} B} (Eq -B (f a) (f b))
+        | refl => [-f : {x : A} B] (refl -B -(f t)) ;
 
     -- Substitution of equality
-    def subst [A : Type] [x : A] [y : A] [e : (Eq -A x y)]
-        ? Eq e -> {P : {x : A} Type} {px : (P a)} (P b)
-        | refl => [P : {x : A} Type] [px : (P t)] px ;
+    def subst [-A : Type] [-x : A] [-y : A] [e : (Eq -A x y)]
+        ? Eq e -> {-P : {x : A} Type} {px : (P a)} (P b)
+        | refl => [-P : {x : A} Type] [px : (P t)] px ;
 
     -- n + 0 == n
     def add_n_zero [n : Nat]
         ? Nat n -> (Eq -Nat (add self zero) self)
-        | succ  => (cong Nat Nat (add pred zero) pred ~pred [x : Nat] (succ x))
-        | zero  => (refl -Nat zero);
+        | succ  => (cong -Nat -Nat -(add pred zero) -pred ~pred -succ)
+        | zero  => (refl -Nat -zero);
 
     -- n + S(m) == S(n + m)
     def add_n_succ_m [n : Nat]
         ? Nat n -> {m : Nat} (Eq -Nat (add self (succ m)) (succ (add self m)))
-        | succ  => [m : Nat] (cong Nat Nat (add pred (succ m)) (succ (add pred m)) (~pred m) succ)
-        | zero  => [m : Nat] (refl -Nat (succ m));
+        | succ  => [m : Nat] (cong -Nat -Nat -(add pred (succ m)) -(succ (add pred m)) (~pred m) -succ)
+        | zero  => [m : Nat] (refl -Nat -(succ m));
 
-    (the 
-        {n : Nat} {m : Nat} (Eq -Nat (add n (succ m)) (succ (add n m)))
-        add_n_succ_m)
+    def add_comm [n : Nat]
+        ? Nat n -> {m : Nat} (Eq -Nat (add self m) (add m self))
+        | succ  => [m : Nat]
+            (subst -Nat -(add m pred) -(add pred m)
+                (sym -Nat -(add pred m) -(add m pred) (~pred m))
+                -[x : Nat](Eq -Nat (succ x) (add m (succ pred)))
+                (sym -Nat -(add m (succ pred)) -(succ (add m pred)) (add_n_succ_m m pred)))
+        | zero  => [m : Nat] (sym -Nat -(add m zero) -m (add_n_zero m));
+
+    add_comm
 """
 
 def test_all():
@@ -1003,6 +1011,7 @@ def test_all():
         print ""
     except Exception as err:
         print err
+        print ""
 
     print "Normal form:"
     print term.eval(True).to_string(Context())
