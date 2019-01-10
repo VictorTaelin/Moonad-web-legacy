@@ -931,7 +931,7 @@ test = """
     def zup_test
         ? Zup zip -> (? Bool b -> Type | true => Bool | false => Nat ;)
         | zip     => true
-        | zap     => true ;
+        | zap     => zero ;
 
     -- Example type indexed on Nat (just Vectors without elements)
     data Ind : {n : Nat} Type
@@ -981,6 +981,8 @@ test = """
         ? Nat n -> {m : Nat} (Eq -Nat (add self (succ m)) (succ (add self m)))
         | succ  => [m : Nat] (cong -Nat -Nat -(add pred (succ m)) -(succ (add pred m)) (~pred m) -succ)
         | zero  => [m : Nat] (refl -Nat -(succ m));
+
+    add_n_succ_m
 
     def add_comm [n : Nat]
         ? Nat n -> {m : Nat} (Eq -Nat (add self m) (add m self))
