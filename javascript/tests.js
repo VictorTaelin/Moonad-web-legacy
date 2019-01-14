@@ -1,6 +1,6 @@
 const nasic = require("./nasic.js");
 const assert = require('assert');
-const cedille = require("./cedille.js");
+const formality = require("./formality.js");
 
 var net = new nasic.Net()
 net.alloc_node(1);
@@ -101,6 +101,6 @@ var example = `
   bool_induction
 `;
 
-var term = cedille(example);
+var term = formality(example);
 assert(term.check().to_string() === "{b : Bool} {-P : {b : Bool} Type} {T : (P true)} {F : (P fals)} (P b)");
 assert(term.eval().to_string() === "[b] [T] [F] (b T F)");

@@ -329,7 +329,8 @@ class App {
     if (!expect.equal(actual)) {
       throw context.show_mismatch(expect, actual, this.to_string(context) + " application");
     }
-    return func_t.eval(false).body.subst(0, this.argm);
+    var term_t = func_t.eval().body.subst(0, this.argm);
+    return func_t instanceof Nik ? new Nik(func_t.name, term_t) : term_t;
   }
 }
 
@@ -802,6 +803,51 @@ function string_to_term(code) {
     throw text;
   }
 
+  function encode_bit(bit) {
+    return new Lam(false, "0", null, new Lam(false, "1", null, new Var(bit ? 0 : 1)));
+  }
+
+  function encode_byte(byt_) {
+    var body = new Var(0);
+    for (var i = 0; i < 8; ++i) {
+      body = new App(false, body, encode_bit((byt_ >>> i) & 1));
+    }
+    return new Lam(false, "byte", null, body);
+  }
+
+  function encode_string(string) {
+    var term = new Var(0);
+    for (var i = string.length - 1; i >= 0; --i) {
+      term = new App(false, new App(false, new Var(1), encode_byte(string[i].charCodeAt(0))), term);
+    }
+    var term = new Lam(false, "append", null, new Lam(false, "empty", null, term));
+    return term;
+  }
+
+  function decode_bit(term) {
+    return term.body.body.index === 0 ? 1 : 0;
+  }
+
+  function decode_byte(term) {
+    term = term.body;
+    var byt_ = 0;
+    for (var i = 0; i < 8; ++i) {
+      byt_ = byt_ + decode_bit(term.argm) * Math.pow(2, 8 - i - 1);
+      term = term.func;
+    }
+    return byt_;
+  }
+
+  function decode_string(term) {
+    term = term.body.body;
+    var string = "";
+    while (term.index !== 0) {
+      string += String.fromCharCode(decode_byte(term.func.argm));
+      term = term.argm;
+    }
+    return string;
+  }
+
   function parse_exact(string) {
     if (!match(string)) {
       error("Parse error, expected '" + string + "'.\n");
@@ -859,8 +905,7 @@ function string_to_term(code) {
     else if (match("[")) {
       var eras = match("-");
       var name = parse_name();
-      var skip = parse_exact(":");
-      var bind = parse_term(context);
+      var bind = match(":") ? parse_term(context) : null;
       var skip = parse_exact("]");
       var body = parse_term(context.extend([name, null]));
       return new Lam(eras, name, bind, body);
@@ -943,8 +988,50 @@ function string_to_term(code) {
     else if (match("def")) {
       var name = parse_name();
       var term = parse_term(context);
-      var body = parse_term(context.extend([name, null]));
-      return body.subst(0, new Nik(name, term));
+      var body = parse_term(context.extend([name, new Nik(name, term)]));
+      return body.shift(0, -1);
+    }
+
+    // Macro
+    else if (match("#")) {
+      var init = index - 1;
+      var func = parse_term(context);
+      var text = "";
+      while (index < code.length && code[index] !== ";") {
+        text += code[index];
+        index += 1;
+      }
+      var argm = encode_string(text);
+      var term = new App(false, func, argm).eval();
+      var text = decode_string(term);
+      code = code.slice(0, init) + text + code.slice(index + 1);
+      index = init;
+      return parse_term(context);
+    }
+
+    // Char
+    else if (match("'")) {
+      var name = parse_name();
+      var term = encode_byte(name[0]);
+      var skip = parse_exact("'");
+      return term;
+    }
+
+    // String
+    else if (match("\"")) {
+      var text = "";
+      while (index < code.length && code[index] !== "\"") {
+        text += code[index];
+        index += 1;
+      }
+      index += 1;
+      return encode_string(text);
+    }
+
+    // Printing (compile-time, for debugging)
+    else if (match("print")) {
+      console.log(decode_string(parse_term(context).eval()));
+      return parse_term(context);
     }
 
     // Variable (named)
