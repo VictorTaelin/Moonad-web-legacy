@@ -1,255 +1,151 @@
 class Pointer {
-    // A Pointer consists of an addr / port pair
-    constructor(addr, port) {
-      this.addr = addr; // integer (index on this.nodes where the target port is)
-      this.port = port; // integer (0, 1 or 2, representing the target port)
-    }
+  // A Pointer consists of an addr / port pair
+  constructor(addr, port) {
+    this.addr = addr; // integer (index on this.nodes where the target port is)
+    this.port = port; // integer (0, 1 or 2, representing the target port)
+  }
 
-    str() {
-      return this.addr + 'abc'[this.port];
-    }
-    
-    eq(other) {
-      return other !== null && this.addr === other.addr && this.port === other.port;
-    }
+  str() {
+    return this.addr + 'abc'[this.port];
+  }
+  
+  eq(other) {
+    return other !== null && this.addr === other.addr && this.port === other.port;
+  }
 }
 
 class Node {
-    // A node consists of a label and an array with 3 ports 
-    constructor(label, ports) {
-        this.label = label; // integer (this node's label)
-        this.ports = ports; // array with 3 pointers (this node's edges)
-    }
+  // A node consists of a label and an array with 3 ports 
+  constructor(label, ports) {
+    this.label = label; // integer (this node's label)
+    this.ports = ports; // array with 3 pointers (this node's edges)
+  }
 
-    str() {
-        return '[' + this.label + '|' + this.ports[0].str() + ' ' + this.ports[1].str() + ' ' + this.ports[2].str() + ']';
-    }
+  str() {
+    return '[' + this.label + '|' + this.ports[0].str() + ' ' + this.ports[1].str() + ' ' + this.ports[2].str() + ']';
+  }
 }
  
 class Net {
-    // A net stores nodes (this.nodes), reclaimable memory addrs (this.freed) and active pairs (this.redex)
-    constructor() {
-        this.nodes = []; // nodes
-        this.freed = []; // integers
-        this.redex = []; // array of (pointers, pointer) tuples
+  // A net stores nodes (this.nodes), reclaimable memory addrs (this.freed) and active pairs (this.redex)
+  constructor() {
+    this.nodes = []; // nodes
+    this.freed = []; // integers
+    this.redex = []; // array of (pointers, pointer) tuples
+  }
+
+  // Allocates a new node, return its addr
+  alloc_node(label) {
+
+    // If there is reclaimable memory, use it
+    if (this.freed.length > 0) {
+      var addr = this.freed.pop();
+    } else { // Otherwise, extend the array of nodes
+      this.nodes.push(null);
+      var addr = this.nodes.length - 1;
     }
 
-    // Allocates a new node, return its addr
-    alloc_node(label) {
+    // Fill the memory with an empty node without pointers
+    this.nodes[addr] = new Node(label, [null, null, null]);
+    return addr;
+  }
 
-        // If there is reclaimable memory, use it
-        if (this.freed.length > 0) {
-            var addr = this.freed.pop();
-        } else { // Otherwise, extend the array of nodes
-            this.nodes.push(null);
-            var addr = this.nodes.length - 1;
-        }
+  // Deallocates a node, allowing its space to be reclaimed
+  free_node(addr) {
+    this.nodes[addr] = null;
+    this.freed.push(addr);
+  }
 
-        // Fill the memory with an empty node without pointers
-        this.nodes[addr] = new Node(label, [null, null, null]);
-        return addr
+  // Given a pointer to a port, returns a pointer to the opposing port
+  enter_port(ptr) {
+    if (this.nodes[ptr.addr] !== null) {
+      return this.nodes[ptr.addr].ports[ptr.port];
+    } else {
+      return null;
+    }
+  }
+
+  // Connects two ports
+  link_ports(a_ptr, b_ptr) {
+    // Stores each pointer on its opposing port
+    this.nodes[a_ptr.addr].ports[a_ptr.port] = b_ptr;
+    this.nodes[b_ptr.addr].ports[b_ptr.port] = a_ptr;
+
+    // If both are main ports, add this to the list of active pairs
+    if (a_ptr.port === 0 && b_ptr.port === 0) {
+      this.redex.push([a_ptr.addr, b_ptr.addr]);
+    } 
+  }
+
+  // Disconnects a port, causing both sides to point to themselves
+  unlink_port(a_ptr) {
+    var b_ptr = this.enter_port(a_ptr);
+    if (this.enter_port(b_ptr) === a_ptr) {
+      this.nodes[a_ptr.addr].ports[a_ptr.port] = a_ptr;
+      this.nodes[b_ptr.addr].ports[b_ptr.port] = b_ptr;
+    }
+  }
+
+  // Rewrites an active pair
+  rewrite([a_addr, b_addr]) {
+    var a_node = this.nodes[a_addr];
+    var b_node = this.nodes[b_addr];
+
+    // If both nodes have the same label, connects their neighbors
+    if (a_node.label === b_node.label) {
+      var a_aux1_dest = this.enter_port(new Pointer(a_addr, 1));
+      var b_aux1_dest = this.enter_port(new Pointer(b_addr, 1));
+      this.link_ports(a_aux1_dest, b_aux1_dest);
+      var a_aux2_dest = this.enter_port(new Pointer(a_addr, 2));
+      var b_aux2_dest = this.enter_port(new Pointer(b_addr, 2));
+      this.link_ports(a_aux2_dest, b_aux2_dest);
+
+    // Otherwise, the nodes pass through each-other, duplicating themselves
+    } else {
+      var p_addr = this.alloc_node(b_node.label);
+      var q_addr = this.alloc_node(b_node.label);
+      var r_addr = this.alloc_node(a_node.label);
+      var s_addr = this.alloc_node(a_node.label);
+      this.link_ports(new Pointer(r_addr, 1), new Pointer(p_addr, 1));
+      this.link_ports(new Pointer(s_addr, 1), new Pointer(p_addr, 2));
+      this.link_ports(new Pointer(r_addr, 2), new Pointer(q_addr, 1));
+      this.link_ports(new Pointer(s_addr, 2), new Pointer(q_addr, 2));
+      this.link_ports(new Pointer(p_addr, 0), this.enter_port(new Pointer(a_addr, 1)));
+      this.link_ports(new Pointer(q_addr, 0), this.enter_port(new Pointer(a_addr, 2)));
+      this.link_ports(new Pointer(r_addr, 0), this.enter_port(new Pointer(b_addr, 1)));
+      this.link_ports(new Pointer(s_addr, 0), this.enter_port(new Pointer(b_addr, 2)));
     }
 
-
-
-    // Deallocates a node, allowing its space to be reclaimed
-    free_node(addr) {
-        this.nodes[addr] = null;
-        this.freed.push(addr);
+    // Deallocates the space used by the active pair
+    for (var i = 0; i < 3; i++) {
+      this.unlink_port(new Pointer(a_addr, i));
+      this.unlink_port(new Pointer(b_addr, i));
     }
+    this.free_node(a_addr);
+    this.free_node(b_addr);
+  }
 
-    // Given a pointer to a port, returns a pointer to the opposing port
-    enter_port(ptr) {
-        if (this.nodes[ptr.addr] !== null) {
-            return this.nodes[ptr.addr].ports[ptr.port];
-        } else {
-            return null;
-        }
+  // Rewrites active pairs until none is left, reducing the graph to normal form
+  reduce() {
+    var rewrite_count = 0;
+    while (this.redex.length > 0) {
+      this.rewrite(this.redex.pop());
+      rewrite_count += 1;
     }
+    return [this, rewrite_count];
+  }
 
-    // Connects two ports
-    link_ports(a_ptr, b_ptr) {
-        // Stores each pointer on its opposing port
-        this.nodes[a_ptr.addr].ports[a_ptr.port] = b_ptr;
-        this.nodes[b_ptr.addr].ports[b_ptr.port] = a_ptr;
-
-        // If both are main ports, add this to the list of active pairs
-        if (a_ptr.port === 0 && b_ptr.port === 0) {
-            this.redex.push([a_ptr.addr, b_ptr.addr]);
-        } 
+  str() {
+    var text = '';
+    for (var i = 0; i < this.nodes.length; i++) {
+      if (this.nodes[i] !== null) {
+        text += i + ': ' + this.nodes[i].str() + '\n';
+      } else {
+        text += i + ': ' + null + '\n';
+      }
     }
-
-    // Disconnects a port, causing both sides to point to themselves
-    unlink_port(a_ptr) {
-        var b_ptr = this.enter_port(a_ptr);
-        if (this.enter_port(b_ptr) === a_ptr) {
-            this.nodes[a_ptr.addr].ports[a_ptr.port] = a_ptr;
-            this.nodes[b_ptr.addr].ports[b_ptr.port] = b_ptr;
-        }
-    }
-
-    // Rewrites an active pair
-    rewrite([a_addr, b_addr]) {
-        
-        var a_node = this.nodes[a_addr];
-        var b_node = this.nodes[b_addr];
-
-        // If both nodes have the same label, connects their neighbors
-        if (a_node.label === b_node.label) {
-            var a_aux1_dest = this.enter_port(new Pointer(a_addr, 1));
-            var b_aux1_dest = this.enter_port(new Pointer(b_addr, 1));
-            this.link_ports(a_aux1_dest, b_aux1_dest);
-            var a_aux2_dest = this.enter_port(new Pointer(a_addr, 2));
-            var b_aux2_dest = this.enter_port(new Pointer(b_addr, 2));
-            this.link_ports(a_aux2_dest, b_aux2_dest);
-        } else { // Otherwise, the nodes pass through each-other, duplicating themselves
-            var p_addr = this.alloc_node(b_node.label);
-            var q_addr = this.alloc_node(b_node.label);
-            var r_addr = this.alloc_node(a_node.label);
-            var s_addr = this.alloc_node(a_node.label);
-            this.link_ports(new Pointer(r_addr, 1), new Pointer(p_addr, 1));
-            this.link_ports(new Pointer(s_addr, 1), new Pointer(p_addr, 2));
-            this.link_ports(new Pointer(r_addr, 2), new Pointer(q_addr, 1));
-            this.link_ports(new Pointer(s_addr, 2), new Pointer(q_addr, 2));
-            this.link_ports(new Pointer(p_addr, 0), this.enter_port(new Pointer(a_addr, 1)));
-            this.link_ports(new Pointer(q_addr, 0), this.enter_port(new Pointer(a_addr, 2)));
-            this.link_ports(new Pointer(r_addr, 0), this.enter_port(new Pointer(b_addr, 1)));
-            this.link_ports(new Pointer(s_addr, 0), this.enter_port(new Pointer(b_addr, 2)));
-
-        }
-
-        // Deallocates the space used by the active pair
-        for (var i = 0; i < 3; i++) {
-            this.unlink_port(new Pointer(a_addr, i));
-            this.unlink_port(new Pointer(b_addr, i));
-        }
-        this.free_node(a_addr);
-        this.free_node(b_addr);
-    }
-
-    // Rewrites active pairs until none is left, reducing the graph to normal form
-    reduce() {
-        var rewrite_count = 0;
-        while (this.redex.length > 0) {
-            this.rewrite(this.redex.pop());
-            rewrite_count += 1;
-        }
-        return [this, rewrite_count];
-    }
-
-    str() {
-        var text = '';
-        for (var i = 0; i < this.nodes.length; i++) {
-            if (this.nodes[i] !== null) {
-                text += i + ': ' + this.nodes[i].str() + '\n';
-            } else {
-                text += i + ': ' + null + '\n';
-            }
-        }
-        return text;
-    }
+    return text;
+  }
 }
 
-
-class Test {
-    // Runs the paper example
-    run_example() {
-        var net = new Net()
-        net.alloc_node(1);
-        net.alloc_node(2);
-        net.alloc_node(1);
-        net.alloc_node(1);
-        net.link_ports(new Pointer(0,0), new Pointer(0,2));
-        net.link_ports(new Pointer(0,1), new Pointer(3,2));
-        net.link_ports(new Pointer(1,0), new Pointer(2,0));
-        net.link_ports(new Pointer(1,1), new Pointer(3,0));
-        net.link_ports(new Pointer(1,2), new Pointer(3,1));
-        net.link_ports(new Pointer(2,1), new Pointer(2,2));
-        console.log('> Input');
-        console.log(net.str());
-        var rewrites = net.reduce()[1];
-        console.log('> Output: ');
-        console.log(net.str());
-        console.log('> Rewrites: ' + rewrites);
-    }
-
-    run_teste2() {
-        var net = new Net();
-        var a = net.alloc_node(0);
-        var b = net.alloc_node(0);
-        var c = net.alloc_node(1);
-        var d = net.alloc_node(0);
-        net.link_ports(new Pointer(a, 0), new Pointer(a, 2))
-        net.link_ports(new Pointer(a, 1), new Pointer(b, 0))
-        net.link_ports(new Pointer(b, 1), new Pointer(c, 2))
-        net.link_ports(new Pointer(b, 2), new Pointer(c, 1))
-        net.link_ports(new Pointer(c, 0), new Pointer(d, 0))
-        net.link_ports(new Pointer(d, 1), new Pointer(d, 2))
-        console.log('> Input');
-        console.log(net.str());
-        var rewrites = net.reduce()[1];
-        console.log(net.str());
-        console.log('> Rewrites: ' + rewrites)
-    }
-
-    run_teste3() {
-        var net = new Net();
-        // 12 nodes
-        var a = net.alloc_node(0);
-        var b = net.alloc_node(0);
-        var c = net.alloc_node(0);
-        var d = net.alloc_node(0);
-        var e = net.alloc_node(1);
-        var f = net.alloc_node(0);
-        var g = net.alloc_node(0);
-        var h = net.alloc_node(0);
-        var i = net.alloc_node(2);
-        var j = net.alloc_node(0);
-        var k = net.alloc_node(0);
-        var l = net.alloc_node(0);
-
-        // a
-        net.link_ports(new Pointer(a, 0), new Pointer(a, 2));
-        net.link_ports(new Pointer(a, 1), new Pointer(b, 2));
-        // b 
-        net.link_ports(new Pointer(b, 1), new Pointer(h, 0));
-        net.link_ports(new Pointer(b, 0), new Pointer(c, 0));
-        // c 
-        net.link_ports(new Pointer(c, 1), new Pointer(e, 0));
-        net.link_ports(new Pointer(c, 2), new Pointer(d, 0));
-        // d
-        net.link_ports(new Pointer(d, 1), new Pointer(f, 1));
-        net.link_ports(new Pointer(d, 2), new Pointer(g, 2));
-        // e
-        net.link_ports(new Pointer(e, 1), new Pointer(f, 0));
-        net.link_ports(new Pointer(e, 2), new Pointer(g, 0));
-        // f
-        net.link_ports(new Pointer(f, 2), new Pointer(g, 1));
-        // g
-
-        // h
-        net.link_ports(new Pointer(h, 1), new Pointer(i, 0));
-        net.link_ports(new Pointer(h, 2), new Pointer(j, 0));
-        // i
-        net.link_ports(new Pointer(i, 1), new Pointer(k, 0));
-        net.link_ports(new Pointer(i, 2), new Pointer(l, 0));
-        // j
-        net.link_ports(new Pointer(j, 1), new Pointer(k, 1));
-        net.link_ports(new Pointer(j, 2), new Pointer(l, 2));
-        // k
-        net.link_ports(new Pointer(k, 2), new Pointer(l, 1));
-        // l
-        console.log('> Input');
-        console.log(net.str());
-        var rewrites = net.reduce()[1];
-        console.log(net.str());
-        console.log('> Rewrites: ' + rewrites);
-    }
-
-}
-
-
-test = new Test()
-// console.log(test.run_example());
-// console.log(test.run_teste2());
-console.log(test.run_teste3());
+module.exports = {Pointer, Node, Net};

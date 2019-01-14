@@ -1,3 +1,5 @@
+# This file is outdated. We're using dependent intersections instead. See javascript/formaltiy.js
+
 class Context:
     def __init__(self, list = []):
         self.list = list
