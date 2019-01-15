@@ -1,6 +1,6 @@
 ## Moonad: a Peer-to-Peer Operating System
 
-**Abstract.** A purely peer-to-peer implementation of an operating system should allow online applications to operate perpetually with no downtime. Ethereum partly solved that problem in 2014, but its focus on smart-contracts posed challenges for everyday adoption. Building upon its ideas, we present the design of a complete decentralized operating system. Our low-level machine language, Nasic, is inherently parallel and adequate for reducing high-order programs efficiently, in contrast to register and stack machines. Our high-level language, Formality, is capable of exploiting Curry-Howard's isomorphism to verify security claims offline, allowing users to trust downloaded code without trusting its developers. An inductive datatype, DappSpec, is used to specify front-end user interfaces. A proof-of-work, tokenless blockchain, Ethernal, is used to aggregate and order global transactions, allowing applications to have a common back-end state. Our design is complete and final, making this a self-contained, timeless specification of the operating system. To facilitate independent implementations, each module is accompanied by commented Python code.
+**Abstract.** A purely peer-to-peer implementation of an operating system should allow online applications to operate perpetually with no downtime. Ethereum partly solved that problem in 2014, but its focus on smart-contracts posed challenges for everyday adoption. Building upon its ideas, we present the design of a complete decentralized operating system. Our low-level machine language, Nasic, is inherently parallel and adequate for reducing high-order programs efficiently, in contrast to register and stack machines. Our high-level language, Cedille, is capable of exploiting Curry-Howard's isomorphism to verify security claims offline, allowing users to trust downloaded code without trusting its developers. An inductive datatype, DappSpec, is used to specify front-end user interfaces. A proof-of-work, tokenless blockchain, Ethernal, is used to aggregate and order global transactions, allowing applications to have a common back-end state. Our design is complete and final, making this a self-contained, timeless specification of the operating system. To facilitate independent implementations, each module is accompanied by commented Python code.
 
 ## 1. Nasic: a massively parallel, low-level machine language
 
@@ -87,7 +87,7 @@ A LLVM target with packed structures and no heap allocation would improve our re
 
 We leave it for client developers to creatively optimize their Nasic implementations as much as possible. 
 
-## 2. Formality: a high-level language for programs and proofs
+## 2. Cedille: a high-level language for programs and proofs
 
 types as a language of specifications
 
