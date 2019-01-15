@@ -65,8 +65,8 @@ class Context {
   show_mismatch(expect, actual, value) {
       var text = "";
       text += "ERROR: Type mismatch on " + value + ".\n";
-      text += "- Expect : " + expect.to_string(this) + "\n";
-      text += "- Actual : " + actual.to_string(this) + "\n"
+      text += "- Expect: " + expect.eval(true).to_string(this) + "\n";
+      text += "- Actual: " + actual.eval(true).to_string(this) + "\n"
       text += "- Context:\n" 
       text += this.show();
       return text;
@@ -77,6 +77,7 @@ class Nik {
   constructor(name, term) {
     this.name = name;
     this.term = term;
+    this.type = null;
   }
 
   to_string(context = new Context([])) {
@@ -636,7 +637,7 @@ class Sym {
 
   to_string(context = new Context([])) {
     var iseq = this.iseq.to_string(context);
-    return "*" + iseq;
+    return "~" + iseq;
   }
 
   shift(depth, inc) {
@@ -916,7 +917,7 @@ function string_to_term(code) {
     }
 
     // Equality symmetry
-    else if (match("*")) {
+    else if (match("~")) {
       var term = parse_term(context);
       return new Sym(term);
     }

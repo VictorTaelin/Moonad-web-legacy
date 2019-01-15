@@ -128,6 +128,11 @@ var example = `
 
   def to_nat [x : CNat] (x -Nat zero succ)
 
+  def n0 (to_nat c0)
+  def n1 (to_nat c1)
+  def n2 (to_nat c2)
+  def n3 (to_nat c3)
+
   def nat_reflection [n : Nat]
     def motive [x : CNat]
       |.(to_nat x) = x|
@@ -138,10 +143,10 @@ var example = `
     (+n -motive case_z case_s)
 
   def nat_induction
-    [n : Nat]
-    [P : {n : Nat} Type]
-    [Z : (P zero)]
-    [S : {-n : Nat} {i : (P n)} (P (succ n))]
+    [n  : Nat]
+    [-P : {n : Nat} Type]
+    [Z  : (P zero)]
+    [S  : {-n : Nat} {i : (P n)} (P (succ n))]
     def motive [x : CNat]
       (P (to_nat x))
     def case_z
@@ -150,7 +155,40 @@ var example = `
       (S -(to_nat x) n)
     (%n (P n) (nat_reflection n) (+n -motive case_z case_s))
 
-  nat_induction
+  def add [n : Nat]
+    def motive [n : Nat] {m : Nat} Nat
+    def case_s [-n : Nat] [i : {m : Nat} Nat] [m : Nat] (succ (i m)) 
+    def case_z [m : Nat] m
+    (nat_induction n -motive case_z case_s)
+
+  def add_n_zero [n : Nat]
+    def motive [n : Nat]
+      |(add n zero) = n|
+    def case_z
+      $zero zero
+    def case_s [-n : Nat] [i : (motive n)]
+      (cong -Nat -Nat -(add n zero) -n -i -succ)
+    (nat_induction n -motive case_z case_s)
+
+  def add_n_succ_m [n : Nat]
+    def motive [n : Nat]
+      {m : Nat} |(add n (succ m)) = (succ (add n m))|
+    def case_z [m : Nat]
+      $(succ m) (succ m)
+    def case_s [-n : Nat] [i : (motive n)] [m : Nat]
+      (cong -Nat -Nat -(add n (succ m)) -(succ (add n m)) -(i m) -succ)
+    (nat_induction n -motive case_z case_s)
+
+  def add_comm [n : Nat]
+    def motive [n : Nat]
+      {m : Nat} |(add n m) = (add m n)|
+    def case_z [m : Nat]
+      ~(add_n_zero m)
+    def case_s [-n : Nat] [i : (motive n)] [m : Nat]
+      Type
+    (nat_induction n -motive case_z case_s)
+
+  add_comm
 `;
 
 var term = formality(example);
