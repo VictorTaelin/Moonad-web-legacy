@@ -1,8 +1,10 @@
+// A context is an array of (name, type) tiples
 class Context {
   constructor(binds) {
     this.binds = binds;
   }
 
+  // Shifts all elements of the context
   shift(depth, inc) {
     var binds = [];
     for (var binder of this.binds) {  
@@ -15,16 +17,20 @@ class Context {
     return new Context(binds);
   }
 
+  // Extends the context with a term, shifting accourdingly
   extend([name, term]) {
     return new Context([[name, term ? term.shift(0, 1) : new Var(0)]].concat(this.shift(0, 1).binds));
   }
 
+  // Returns the type of an element given its index
   get_type(index) {
     if (index < this.binds.length) {
       return this.binds[index][1];
     }
   }
 
+  // Returns the name of an element given its index,
+  // avoiding capture by appending 's if needed
   get_name(index) {
     if (index < this.binds.length) {
       var name = this.binds[index][0];
@@ -37,6 +43,8 @@ class Context {
     }
   }
 
+  // Finds a term by its name, skipping a number of terms
+  // (this allows the x''' syntax be used to address shadowed vars)
   find_by_name(find_name, skip) {
     for (var [name, term] of this.binds) {
       if (find_name === name) {
@@ -50,6 +58,7 @@ class Context {
     return null;
   }
 
+  // Pretty prints a context
   show() {
     if (this.binds.length === 0) {
       return "(empty)\n";
@@ -62,6 +71,7 @@ class Context {
     }
   }
 
+  // Formats a type-mismatch error message
   show_mismatch(expect, actual, value) {
       var text = "";
       text += "ERROR: Type mismatch on " + value + ".\n";
@@ -73,11 +83,12 @@ class Context {
   }
 }
 
+// Annotates a term with a name for pretty printing
+// This is temporary; I'm doing this because definitions are inlined
 class Nik {
   constructor(name, term) {
-    this.name = name;
-    this.term = term;
-    this.type = null;
+    this.name = name; // String
+    this.term = term; // Term
   }
 
   to_string(context = new Context([])) {
@@ -105,6 +116,8 @@ class Nik {
   }
 }
 
+// The type of types (TODO: kinding system, right now we have Type : Type)
+// Syntax: Type
 class Typ {
   constructor() {
   }
@@ -134,12 +147,14 @@ class Typ {
   }
 }
 
+// The type of a lambda (either erased or not)
+// Syntax: {x : A} B
 class All {
   constructor(eras, name, bind, body) {
-    this.eras = eras;
-    this.name = name;
-    this.bind = bind;
-    this.body = body;
+    this.eras = eras; // Bool (true if erased)
+    this.name = name; // String (argument name)
+    this.bind = bind; // Term (argument type)
+    this.body = body; // Term (function body)
   }
 
   to_string(context = new Context([])) {
@@ -195,12 +210,14 @@ class All {
   }
 }
 
+// A lambda (either erased or not)
+// Syntax: [x : A] t
 class Lam {
   constructor(eras, name, bind, body) {
-    this.eras = eras;
-    this.name = name;
-    this.bind = bind;
-    this.body = body;
+    this.eras = eras; // Bool (true if erased)
+    this.name = name; // String (argument name)
+    this.bind = bind; // Term (argument type)
+    this.body = body; // Term (function body)
   }
 
   to_string(context = new Context([])) {
@@ -263,11 +280,13 @@ class Lam {
   }
 }
 
+// An application
+// Syntax: (f x y z ...)
 class App {
   constructor(eras, func, argm) {
-    this.eras = eras;
-    this.func = func;
-    this.argm = argm;
+    this.eras = eras; // Bool (true if erased)
+    this.func = func; // Term (the function)
+    this.argm = argm; // Term (the argument)
   }
 
   to_string(context = new Context([])) {
@@ -335,9 +354,11 @@ class App {
   }
 }
 
+// A bruijn-indexed variable
+// Syntax: (a string representing its name)
 class Var {
   constructor(index) {
-    this.index = index;
+    this.index = index; // Number
   }
 
   to_string(context = new Context([])) {
@@ -372,11 +393,13 @@ class Var {
   }
 }
 
+// A dependent intersection between two types
+// Syntax: <x : A> B
 class Dep {
   constructor(name, typ0, typ1) {
-    this.name = name;
-    this.typ0 = typ0;
-    this.typ1 = typ1;
+    this.name = name; // String
+    this.typ0 = typ0; // Term
+    this.typ1 = typ1; // Term
   }
 
   to_string(context = new Context([])) {
@@ -426,6 +449,8 @@ class Dep {
   }
 }
 
+// The value of a dependent intersection
+// Syntax: @x : (B x) = a & b
 class Bth {
   constructor(name, typ1, val0, val1) {
     this.name = name;
@@ -481,6 +506,8 @@ class Bth {
   }
 }
 
+// The first projection of a dependent intersection
+// Syntax: .x
 class Fst {
   constructor(term) {
     this.term = term;
@@ -515,6 +542,8 @@ class Fst {
   }
 }
 
+// The second projection of a dependent intersection
+// Syntax: +x
 class Snd {
   constructor(term) {
     this.term = term;
@@ -549,6 +578,8 @@ class Snd {
   }
 }
 
+// Heterogeneous equality type
+// Syntax: |a = b|
 class Eql {
   constructor(val0, val1) {
     this.val0 = val0;
@@ -593,6 +624,8 @@ class Eql {
   }
 }
 
+// Equality reflexivity of term `t`, erasing to `k`
+// Syntax: $t k
 class Rfl {
   constructor(term, eras) {
     this.term = term;
@@ -630,6 +663,8 @@ class Rfl {
   }
 }
 
+// Symmetry of equality
+// Syntax: ~e
 class Sym {
   constructor(iseq) {
     this.iseq = iseq;
@@ -667,6 +702,8 @@ class Sym {
   }
 }
 
+// Type-guided rewritting (allows replacing equal terms in types)
+// Syntax: &x (P x) e t
 class Rwt {
   constructor(name, type, iseq, term) {
     this.name = name;
@@ -722,6 +759,8 @@ class Rwt {
   }
 }
 
+// Type casting (if `a = b`, gives `b` the type of `a`)
+// Syntax: ^e a b
 class Cst {
   constructor(iseq, val0, val1) {
     this.iseq = iseq;
