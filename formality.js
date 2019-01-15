@@ -64,10 +64,11 @@ class Context {
 
   show_mismatch(expect, actual, value) {
       var text = "";
-      text += "Type mismatch on " + value + ".\n";
-      text += "- Expect: " + expect.to_string(this) + "\n";
-      text += "- Actual: " + actual.to_string(this) + "\n"
-      text += "- Context:\n" + this.show();
+      text += "ERROR: Type mismatch on " + value + ".\n";
+      text += "- Expect : " + expect.to_string(this) + "\n";
+      text += "- Actual : " + actual.to_string(this) + "\n"
+      text += "- Context:\n" 
+      text += this.show();
       return text;
   }
 }
@@ -94,8 +95,8 @@ class Nik {
     return this.term.equal(other);
   }
 
-  eval() {
-    return this.term.eval();
+  eval(except_bind) {
+    return this.term.eval(except_bind);
   }
 
   check(context = new Context([])) {
@@ -123,7 +124,7 @@ class Typ {
     return other instanceof Typ;
   }
 
-  eval() {
+  eval(except_bind) {
     return new Typ();
   }
   
@@ -174,11 +175,11 @@ class All {
     return false;
   }
 
-  eval() {
+  eval(except_bind) {
     var eras = this.eras;
     var name = this.name;
-    var bind = this.bind.eval();
-    var body = this.body.eval();
+    var bind = except_bind ? this.bind : this.bind.eval(except_bind);
+    var body = this.body.eval(except_bind);
     return new All(eras, name, bind, body);
   }
 
@@ -186,7 +187,7 @@ class All {
     var bind_v = this.bind;
     var bind_t = this.bind.check(context);
     var body_t = this.body.check(context.extend([this.name, bind_v]));
-    if (!bind_t.eval(true).equal(new Typ()) || !body_t.eval(true).equal(new Typ())) {
+    if (!bind_t.eval(false).equal(new Typ()) || !body_t.eval(false).equal(new Typ())) {
       throw "Forall not a type. Context:\n" + context.show();
     }
     return new Typ();
@@ -234,14 +235,14 @@ class Lam {
     return false;
   }
 
-  eval() {
+  eval(except_bind) {
     if (this.eras) {
-      return this.body.eval().subst(0, null);
+      return this.body.eval(except_bind).subst(0, null);
     } else {
       var eras = this.eras;
       var name = this.name;
       var bind = null;
-      var body = this.body.eval();
+      var body = this.body.eval(except_bind);
       return new Lam(eras, name, bind, body);
     }
   }
@@ -253,7 +254,7 @@ class Lam {
       var bind_v = this.bind;
       var bind_t = this.bind.check(context);
       var body_t = this.body.check(context.extend([this.name, bind_v]));
-      if (!bind_t.eval(true).equal(new Typ())) {
+      if (!bind_t.eval(false).equal(new Typ())) {
         throw "Function type not a type. Context:" + context.show();
       }
       return new All(this.eras, this.name, bind_v, body_t);
@@ -302,35 +303,34 @@ class App {
     return false;
   }
 
-  eval() {
+  eval(except_bind) {
     if (this.eras) {
-      return this.func.eval();
+      return this.func.eval(except_bind);
     } else {
-      var func_v = this.func.eval();
+      var func_v = this.func.eval(except_bind);
       if (!(func_v instanceof Lam)) {
-        return new App(this.eras, func_v, this.argm.eval());
+        return new App(this.eras, func_v, this.argm.eval(except_bind));
+      } else {
+        return func_v.body.subst(0, this.argm).eval(except_bind);
       }
-      return func_v.body.subst(0, this.argm).eval();
     }
   }
 
   check(context = new Context([])) {
-    var func_t = this.func.check(context);
+    var func_t = this.func.check(context).eval(true);
     var argm_t = this.argm.check(context);
-    var func_T = func_t.eval(true);
-    var expect = func_T.bind;
-    var actual = argm_t.eval(true);
-    if (!func_T instanceof All) {
+    var expect = func_t.bind;
+    var actual = argm_t;
+    if (!func_t instanceof All) {
       throw "Non-function application. Context:\n" + context.show();
     }
-    if (func_T.eras !== this.eras) {
+    if (func_t.eras !== this.eras) {
       throw "Mismatched erasure on " + this.to_string(context) + ".";
     }
-    if (!expect.equal(actual)) {
-      throw context.show_mismatch(expect, actual, this.to_string(context) + " application");
+    if (!expect.eval(false).equal(actual.eval(false))) {
+      throw context.show_mismatch(expect, actual, "application: " + this.to_string(context));
     }
-    var term_t = func_t.eval().body.subst(0, this.argm);
-    return func_t instanceof Nik ? new Nik(func_t.name, term_t) : term_t;
+    return func_t.body.subst(0, this.argm);
   }
 }
 
@@ -362,7 +362,7 @@ class Var {
     return other instanceof Var && this.index === other.index;
   }
 
-  eval() {
+  eval(except_bind) {
     return new Var(this.index);
   }
 
@@ -408,17 +408,17 @@ class Dep {
     return false;
   }
 
-  eval() {
+  eval(except_bind) {
     var name = this.name;
-    var typ0 = this.typ0.eval();
-    var typ1 = this.typ1.eval();
+    var typ0 = this.typ0.eval(except_bind);
+    var typ1 = this.typ1.eval(except_bind);
     return new Dep(name, typ0, typ1);
   }
 
   check(context = new Context([])) {
     var typ0_t = this.typ0.check(context);
     var typ1_t = this.typ1.check(context.extend([this.name, this.typ0]));
-    if (!typ0_t.eval(true).equal(new Typ()) || !typ0_t.eval(true).equal(typ1_t.eval(true))) {
+    if (!typ0_t.eval(false).equal(new Typ()) || !typ0_t.eval(false).equal(typ1_t.eval(false))) {
       throw "Dependent intersection not a type. Context: " + context.show();
     }
     return new Typ();
@@ -461,19 +461,19 @@ class Bth {
     return this.val0.equal(other);
   }
 
-  eval() {
-    return this.val0.eval();
+  eval(except_bind) {
+    return this.val0.eval(except_bind);
   }
   
   check(context = new Context([])) {
     var val0_t = this.val0.check(context);
     var val1_t = this.val1.check(context);
-    var expect = this.typ1.subst(0, this.val0).eval(true)
-    var actual = val1_t.eval(true);
-    if (!expect.equal(actual)) {
+    var expect = this.typ1.subst(0, this.val0);
+    var actual = val1_t;
+    if (!expect.eval(false).equal(actual.eval(false))) {
       throw context.show_mismatch(expect, actual, this.to_string(context) + " intersection");
     }
-    if (!this.val0.eval(true).equal(this.val1.eval(true))) {
+    if (!this.val0.eval(false).equal(this.val1.eval(false))) {
       throw "Values of " + this.to_string(context) + " intersection are not equal.";
     }
     return new Dep(this.name, val0_t, this.typ1);
@@ -501,13 +501,13 @@ class Fst {
     return this.term.equal(other);
   }
 
-  eval() {
-    return this.term.eval();
+  eval(except_bind) {
+    return this.term.eval(except_bind);
   }
 
   check(context = new Context([])) {
-    var term_t = this.term.check(context).eval();
-    if (!(term_t.eval() instanceof Dep)) {
+    var term_t = this.term.check(context).eval(true);
+    if (!(term_t.eval(false) instanceof Dep)) {
       throw "The term " + this.to_string(context) + " isn't a dependent intersection.";
     }
     return term_t.typ0;
@@ -535,12 +535,12 @@ class Snd {
     return this.term.equal(other);
   }
 
-  eval() {
-    return this.term.eval();
+  eval(except_bind) {
+    return this.term.eval(except_bind);
   }
 
   check(context = new Context([])) {
-    var term_t = this.term.check(context).eval();
+    var term_t = this.term.check(context).eval(true);
     if (!(term_t instanceof Dep)) {
       throw "The term " + this.to_string(context) + " isn't a dependent intersection.";
     }
@@ -581,9 +581,9 @@ class Eql {
     return false;
   }
 
-  eval() {
-    var val0 = this.val0.eval();
-    var val1 = this.val1.eval();
+  eval(except_bind) {
+    var val0 = this.val0.eval(except_bind);
+    var val1 = this.val1.eval(except_bind);
     return new Eql(val0, val1);
   }
 
@@ -620,8 +620,8 @@ class Rfl {
     return this.eras.equal(other);
   }
 
-  eval() {
-    return this.eras.eval();
+  eval(except_bind) {
+    return this.eras.eval(except_bind);
   }
 
   check(context = new Context([])) {
@@ -653,13 +653,12 @@ class Sym {
     return this.iseq.equal(other);
   }
 
-  eval() {
-    var iseq = this.iseq.eval();
-    return iseq;
+  eval(except_bind) {
+    return this.iseq.eval(except_bind);
   }
 
   check(context = new Context([])) {
-    var iseq_t = this.iseq.check(context);
+    var iseq_t = this.iseq.check(context).eval(true);
     if (!(iseq_t instanceof Eql)) {
       throw "Non-equality symmetry: " + this.to_string() + "."
     }
@@ -703,20 +702,20 @@ class Rwt {
     return this.term.iseq(other);
   }
 
-  eval() {
-    return this.term.eval();
+  eval(except_bind) {
+    return this.term.eval(except_bind);
   }
 
   check(context = new Context([])) {
-    var iseq_t = this.iseq.check(context);
+    var iseq_t = this.iseq.check(context).eval(true);
     if (!(iseq_t instanceof Eql)) {
       throw "Non-equality rewrite: " + this.to_string(context) + ".";
     }
     var term_t = this.term.check(context);
-    var expect = this.type.subst(0, iseq_t.val0).eval(true);
-    var actual = term_t.eval(true);
-    if (!actual.equal(expect)) {
-      throw context.show_mismatch(expect, actual, "term of " + this.to_string(context) + " rewrite");
+    var expect = this.type.subst(0, iseq_t.val0);
+    var actual = term_t;
+    if (!actual.eval(false).equal(expect.eval(false))) {
+      throw context.show_mismatch(expect, actual, "(" + this.to_string(context) + ") rewrite");
     }
     return this.type.subst(0, iseq_t.val1);
   }
@@ -754,8 +753,8 @@ class Cst {
     return this.val1.equal(other);
   }
 
-  eval() {
-    return this.val1.eval();
+  eval(except_bind) {
+    return this.val1.eval(except_bind);
   }
 
   check(context = new Context([])) {
@@ -801,51 +800,6 @@ function string_to_term(code) {
     text += code.slice(index - 64, index) + "<<<HERE>>>";
     text += code.slice(index, index + 64) + ">>>";
     throw text;
-  }
-
-  function encode_bit(bit) {
-    return new Lam(false, "0", null, new Lam(false, "1", null, new Var(bit ? 0 : 1)));
-  }
-
-  function encode_byte(byt_) {
-    var body = new Var(0);
-    for (var i = 0; i < 8; ++i) {
-      body = new App(false, body, encode_bit((byt_ >>> i) & 1));
-    }
-    return new Lam(false, "byte", null, body);
-  }
-
-  function encode_string(string) {
-    var term = new Var(0);
-    for (var i = string.length - 1; i >= 0; --i) {
-      term = new App(false, new App(false, new Var(1), encode_byte(string[i].charCodeAt(0))), term);
-    }
-    var term = new Lam(false, "append", null, new Lam(false, "empty", null, term));
-    return term;
-  }
-
-  function decode_bit(term) {
-    return term.body.body.index === 0 ? 1 : 0;
-  }
-
-  function decode_byte(term) {
-    term = term.body;
-    var byt_ = 0;
-    for (var i = 0; i < 8; ++i) {
-      byt_ = byt_ + decode_bit(term.argm) * Math.pow(2, 8 - i - 1);
-      term = term.func;
-    }
-    return byt_;
-  }
-
-  function decode_string(term) {
-    term = term.body.body;
-    var string = "";
-    while (term.index !== 0) {
-      string += String.fromCharCode(decode_byte(term.func.argm));
-      term = term.argm;
-    }
-    return string;
   }
 
   function parse_exact(string) {
@@ -990,48 +944,6 @@ function string_to_term(code) {
       var term = parse_term(context);
       var body = parse_term(context.extend([name, new Nik(name, term)]));
       return body.shift(0, -1);
-    }
-
-    // Macro
-    else if (match("#")) {
-      var init = index - 1;
-      var func = parse_term(context);
-      var text = "";
-      while (index < code.length && code[index] !== ";") {
-        text += code[index];
-        index += 1;
-      }
-      var argm = encode_string(text);
-      var term = new App(false, func, argm).eval();
-      var text = decode_string(term);
-      code = code.slice(0, init) + text + code.slice(index + 1);
-      index = init;
-      return parse_term(context);
-    }
-
-    // Char
-    else if (match("'")) {
-      var name = parse_name();
-      var term = encode_byte(name[0]);
-      var skip = parse_exact("'");
-      return term;
-    }
-
-    // String
-    else if (match("\"")) {
-      var text = "";
-      while (index < code.length && code[index] !== "\"") {
-        text += code[index];
-        index += 1;
-      }
-      index += 1;
-      return encode_string(text);
-    }
-
-    // Printing (compile-time, for debugging)
-    else if (match("print")) {
-      console.log(decode_string(parse_term(context).eval()));
-      return parse_term(context);
     }
 
     // Variable (named)
