@@ -83,12 +83,13 @@ class Context {
   }
 }
 
-// Annotates a term with a name for pretty printing
-// This is temporary; I'm doing this because definitions are inlined
-class Nik {
-  constructor(name, term) {
+// A reference to a term. This is used to preserve names and cache types.
+class Ref {
+  constructor(name, term, clos) {
     this.name = name; // String
     this.term = term; // Term
+    this.clos = clos; // Bool
+    this.type = null; // Maybe Term
   }
 
   to_string(context = new Context([])) {
@@ -96,11 +97,11 @@ class Nik {
   }
 
   shift(depth, inc) {
-    return new Nik(this.name, this.term.shift(depth, inc));
+    return this.clos ? this : new Ref(this.name, this.term.shift(depth, inc));
   }
 
   subst(depth, val) {
-    return new Nik(this.name, this.term.subst(depth, val));
+    return this.clos ? this : new Ref(this.name, this.term.subst(depth, val));
   }
 
   equal(other) {
@@ -112,7 +113,10 @@ class Nik {
   }
 
   check(context = new Context([])) {
-    return this.term.check(context);
+    if (!this.type) {
+      this.type = this.term.check(context);
+    }
+    return this.type;
   }
 }
 
@@ -982,7 +986,15 @@ function string_to_term(code) {
     else if (match("def")) {
       var name = parse_name();
       var term = parse_term(context);
-      var body = parse_term(context.extend([name, new Nik(name, term)]));
+      var body = parse_term(context.extend([name, new Ref(name, term, true)]));
+      return body.shift(0, -1);
+    }
+
+    // Local definition
+    else if (match("let")) {
+      var name = parse_name();
+      var term = parse_term(context);
+      var body = parse_term(context.extend([name, new Ref(name, term, false)]));
       return body.shift(0, -1);
     }
 

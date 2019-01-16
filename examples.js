@@ -62,7 +62,7 @@ var example = `
   -- Proof of reflexivity: ∀ b. |(b true false) = b|
 
   def bool_reflection [b : Bool]
-    def motive [b : CBool]|(b true fals) = b|
+    let motive [b : CBool]|(b true fals) = b|
     (+b -motive ($ctrue ctrue) ($cfals cfals))
 
   -- Induction principle
@@ -71,7 +71,7 @@ var example = `
     [-P : {b : Bool} Type]
     [T  : (P true)]
     [F  : (P fals)]
-    def motive [b : CBool](P (b -Bool true fals))
+    let motive [b : CBool](P (b -Bool true fals))
     (%x (P x) (bool_reflection b) (+b -motive T F))
 
   -- Natural number type construction
@@ -134,11 +134,11 @@ var example = `
   def n3 (to_nat c3)
 
   def nat_reflection [n : Nat]
-    def motive [x : CNat]
+    let motive [x : CNat]
       |.(to_nat x) = x|
-    def case_z
+    let case_z
       ($zero [x] x)
-    def case_s [-x : CNat] [n : |.(to_nat x) = x|]
+    let case_s [-x : CNat] [n : |.(to_nat x) = x|]
       (cong -CNat -CNat -.(to_nat x) -x -n -csucc)
     (+n -motive case_z case_s)
 
@@ -147,44 +147,44 @@ var example = `
     [-P : {n : Nat} Type]
     [Z  : (P zero)]
     [S  : {-n : Nat} {i : (P n)} (P (succ n))]
-    def motive [x : CNat]
+    let motive [x : CNat]
       (P (to_nat x))
-    def case_z
+    let case_z
       Z
-    def case_s [-x : CNat] [n : (P (to_nat x))]
+    let case_s [-x : CNat] [n : (P (to_nat x))]
       (S -(to_nat x) n)
     (%n (P n) (nat_reflection n) (+n -motive case_z case_s))
 
   def add [n : Nat]
-    def motive [n : Nat] {m : Nat} Nat
-    def case_s [-n : Nat] [i : {m : Nat} Nat] [m : Nat] (succ (i m)) 
-    def case_z [m : Nat] m
+    let motive [n : Nat] {m : Nat} Nat
+    let case_s [-n : Nat] [i : {m : Nat} Nat] [m : Nat] (succ (i m)) 
+    let case_z [m : Nat] m
     (nat_induction n -motive case_z case_s)
 
   def add_n_zero [n : Nat]
-    def motive [n : Nat]
+    let motive [n : Nat]
       |(add n zero) = n|
-    def case_z
+    let case_z
       $zero zero
-    def case_s [-n : Nat] [i : (motive n)]
+    let case_s [-n : Nat] [i : (motive n)]
       (cong -Nat -Nat -(add n zero) -n -i -succ)
     (nat_induction n -motive case_z case_s)
 
   def add_n_succ_m [n : Nat]
-    def motive [n : Nat]
+    let motive [n : Nat]
       {m : Nat} |(add n (succ m)) = (succ (add n m))|
-    def case_z [m : Nat]
+    let case_z [m : Nat]
       $(succ m) (succ m)
-    def case_s [-n : Nat] [i : (motive n)] [m : Nat]
+    let case_s [-n : Nat] [i : (motive n)] [m : Nat]
       (cong -Nat -Nat -(add n (succ m)) -(succ (add n m)) -(i m) -succ)
     (nat_induction n -motive case_z case_s)
 
   def add_comm [n : Nat]
-    def motive [n : Nat]
+    let motive [n : Nat]
       {m : Nat} |(add n m) = (add m n)|
-    def case_z [m : Nat]
+    let case_z [m : Nat]
       ~(add_n_zero m)
-    def case_s [-n : Nat] [i : (motive n)] [m : Nat]
+    let case_s [-n : Nat] [i : (motive n)] [m : Nat]
       Type
     (nat_induction n -motive case_z case_s)
 
