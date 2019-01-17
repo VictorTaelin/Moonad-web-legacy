@@ -454,37 +454,33 @@ class Dep {
 }
 
 // The value of a dependent intersection
-// Syntax: @x : (B x) = a & b
-class Bth {
-  constructor(name, typ1, val0, val1) {
-    this.name = name;
-    this.typ1 = typ1;
+// Syntax: @T = a & b
+class New {
+  constructor(type, val0, val1) {
+    this.type = type;
     this.val0 = val0;
     this.val1 = val1;
   }
 
   to_string(context = new Context([])) {
-    var name = this.name;
-    var typ1 = this.typ1.to_string(context.extend([this.name, null]));
+    var type = this.type.to_string(context);
     var val0 = this.val0.to_string(context);
     var val1 = this.val1.to_string(context);
-    return "@" + name + " : " + typ1 + " = " + val0 + " & " + val1;
+    return ":" + type + " = " + val0 + " & " + val1;
   }
 
   shift(depth, inc) {
-    var name = this.name;
-    var typ1 = this.typ1.shift(depth + 1, inc);
+    var type = this.type.shift(depth, inc);
     var val0 = this.val0.shift(depth, inc);
     var val1 = this.val1.shift(depth, inc);
-    return new Bth(name, typ1, val0, val1);
+    return new New(type, val0, val1);
   }
 
   subst(depth, val) {
-    var name = this.name;
-    var typ1 = this.typ1.subst(depth + 1, val && val.shift(0, 1));
+    var type = this.type.subst(depth, val);
     var val0 = this.val0.subst(depth, val);
     var val1 = this.val1.subst(depth, val);
-    return new Bth(name, typ1, val0, val1);
+    return new New(type, val0, val1);
   }
 
   equal(other) {
@@ -496,17 +492,27 @@ class Bth {
   }
   
   check(context = new Context([])) {
-    var val0_t = this.val0.check(context);
-    var val1_t = this.val1.check(context);
-    var expect = this.typ1.subst(0, this.val0);
-    var actual = val1_t;
+    var type_v = this.type.eval(false);
+    if (!(type_v instanceof Dep)) {
+      throw ("Invalid instantiation: `" + this.to_string(context) + "`.\n"
+          + "Its type must be a dependent intersection `<x : A> B`.");
+    }
+    var expect = type_v.typ0;
+    var actual = this.val0.check(context);
     if (!expect.eval(false).equal(actual.eval(false))) {
-      throw context.show_mismatch(expect, actual, this.to_string(context) + " intersection");
+      throw context.show_mismatch(expect, actual, "first value of intersection: `" + this.to_string(context) + "`");
+    }
+    var expect = type_v.typ1.subst(0, this.val0);
+    var actual = this.val1.check(context);
+    if (!expect.eval(false).equal(actual.eval(false))) {
+      throw context.show_mismatch(expect, actual, "second value of intersection: `" + this.to_string(context) + "`");
     }
     if (!this.val0.eval(false).equal(this.val1.eval(false))) {
-      throw "Values of " + this.to_string(context) + " intersection are not equal.";
+      throw ("Non-equal values on intersection: `" + this.to_string(context) + "`.\n"
+        + "- " + this.val0.eval(false).to_string(context) + "\n"
+        + "- " + this.val1.eval(false).to_string(context));
     }
-    return new Dep(this.name, val0_t, this.typ1);
+    return type_v;
   }
 }
 
@@ -920,15 +926,13 @@ function string_to_term(code) {
     }
 
     // Dependent intersection value
-    else if (match("@")) {
-      var name = parse_name();
-      var skip = parse_exact(":");
-      var typ1 = parse_term(context.extend([name, null]));
+    else if (match(":")) {
+      var type = parse_term(context);
       var skip = parse_exact("=");
       var val0 = parse_term(context);
       var skip = parse_exact("&");
       var val1 = parse_term(context);
-      return new Bth(name, typ1, val0, val1);
+      return new New(type, val0, val1);
     }
 
     // Dependent intersection erased view
