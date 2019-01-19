@@ -1,5 +1,14 @@
 const udp = require('dgram');
 
+if (process.argv.length != 4) {
+    console.log("Usage: \"node client_node [LOCAL_PORT] [REMOTE_PORT]\"\n");
+    console.log("Where LOCAL_PORT is the port used by client_node to communicate");
+    console.log("with other clients and REMOTE_PORT is the port used by another");
+    console.log("instance of client_node\n");
+    console.log("e.g.: node client_node 5000 5001");
+    process.exit();
+}
+
 const PORT = parseInt(process.argv[2]);
 const REMOTE = parseInt(process.argv[3]);
 
