@@ -39,17 +39,6 @@ pushNewPort(REMOTE);
 // useful variables
 var blockchain = new eth.Blockchain // TODO: Save blockchain in a file
 
-blockchain.add(new eth.Block(
-    "0000000000000000",
-    "0000000000000000",
-    "00000000000000000000000000000000",
-    "0000000000000000000000000000000000000000000000000000000000000000",
-    "0000000000000000000000000000000000000000000000000000000000000000",
-    eth.hash([]),
-    []));
-var msg = JSON.stringify(blockchain.blocks['2bb51fdfe3638193e6ba7ad4492c5f826e4dd093ca0400becd3ebb6b7c53fc01'].to_json());
-console.log(msg);
-
 // create udp socket
 socket = udp.createSocket('udp4');
 socket.bind(PORT);
