@@ -2,7 +2,7 @@ keccak256 = require("./keccak");
 
 function hash(strings) {
     return keccak256(strings.join(""));
-};   
+};
 
 const empty_hash = "0000000000000000000000000000000000000000000000000000000000000000"
 
@@ -49,10 +49,10 @@ class Blockchain {
     constructor(){
         this.blocks = {};
     };
-    
+
     add(block) {
         if (!block.is_valid()) {
-            throw "Attempted to add invalid block." 
+            throw "Attempted to add invalid block."
         }
         this.blocks[block.hash()] = block;
     };
@@ -95,6 +95,10 @@ class Blockchain {
         };
         return text;
     };
+
+    test() {
+        console.log("works");
+    };
 }
 
 function main() {
@@ -131,6 +135,13 @@ function main() {
     console.log(blockchain.get_tip());
 }
 
+module.exports = {
+    Block: Block,
+    Blockchain: Blockchain,
+    hash: hash,
+    empty_hash: empty_hash,
+}
+
 
 // test();
-main();
+//main();

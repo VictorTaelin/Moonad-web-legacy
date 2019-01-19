@@ -1,4 +1,5 @@
 const udp = require('dgram');
+const eth = require('./ethernal');
 
 if (process.argv.length != 4) {
     console.log("Usage: \"node client_node [LOCAL_PORT] [REMOTE_PORT]\"\n");
@@ -14,8 +15,9 @@ const REMOTE = parseInt(process.argv[3]);
 
 // Message Templates
 var db = {'type':'addr', 'known':[]};
-const getPeers = {'type':'getPeers', 'port':PORT}
-const getBlk = {'type':'getBlk', 'port':PORT}
+const getPeersJson = {'type':'getPeers', 'port':PORT};
+const getBlkJson = {'type':'getBlk', 'port':PORT, 'block':eth.empty_hash};
+const getTipJson = {'type':'getBlk', 'port':PORT};
 
 // Useful functions
 function randomInt(max){
@@ -39,12 +41,13 @@ socket.bind(PORT);
 
 // emits on new datagram msg
 socket.on('message',function(msg,remote){
-    //console.log(remote.address + ':' + remote.port +' - (' + msg.length + ' bytes) ' + msg.toString());
     console.log(msg.toString() + ' <<<<< ' + remote.port)
     var req = JSON.parse(msg);
 
     switch(req['type']){
-        case getPeers['type']:
+        //---------------------------------------------------------------------
+        case getPeersJson['type']:
+        // Send peers to other nodes
         var msg = JSON.stringify(db);
         socket.send(msg, remote.port,'localhost', function(error){
             if(error){
@@ -56,12 +59,24 @@ socket.on('message',function(msg,remote){
         pushNewPort(remote.port);
         break;
 
+        //---------------------------------------------------------------------
+        case getBlkJson['type']:
+        // send block
+        break;
+
+        //---------------------------------------------------------------------
+        case getTipJson['type']:
+        // send blockchain tip
+        break;
+
+        //---------------------------------------------------------------------
         case db['type']:
         req['known'].forEach(function(item, index){
             pushNewPort(item);
         });
         break;
 
+        //---------------------------------------------------------------------
         default:
         console.log("Received invalid message. Ignoring...");
         break;
@@ -95,7 +110,7 @@ setInterval(function() {
     console.log("Getting new peers...");
 
     //send msg
-    var getPeersMsg = JSON.stringify(getPeers);
+    var getPeersMsg = JSON.stringify(getPeersJson);
     var dest = randomPeer();
     socket.send(getPeersMsg, dest, 'localhost', function(error){
         if(error){
