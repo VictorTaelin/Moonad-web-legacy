@@ -43,6 +43,20 @@ class Block {
         }
         return text
     };
+
+    to_json() {
+        var json = {
+            'hash':this.hash(),
+            'time':this.time,
+            'nonce':this.nonce,
+            'extra':this.extra,
+            'difficulty':this.difficulty,
+            'prev_hash':this.prev_hash,
+            'posts_hash':this.posts_hash,
+            'posts':this.posts
+        };
+        return json;
+    };
 }
 
 class Blockchain {

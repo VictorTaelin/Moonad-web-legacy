@@ -10,13 +10,14 @@ if (process.argv.length != 4) {
     process.exit();
 }
 
+// Useful constants
 const PORT = parseInt(process.argv[2]);
 const REMOTE = parseInt(process.argv[3]);
 
 // Message Templates
 var db = {'type':'addr', 'known':[]};
 const getPeersJson = {'type':'getPeers', 'port':PORT};
-const getBlkJson = {'type':'getBlk', 'port':PORT, 'block':eth.empty_hash};
+const getBlkJson = {'type':'getBlk', 'port':PORT, 'hash':eth.empty_hash};
 const getTipJson = {'type':'getBlk', 'port':PORT};
 
 // Useful functions
@@ -35,9 +36,33 @@ function pushNewPort(newPort){
 }
 pushNewPort(REMOTE);
 
+// useful variables
+var blockchain = new eth.Blockchain // TODO: Save blockchain in a file
+
+blockchain.add(new eth.Block(
+    "0000000000000000",
+    "0000000000000000",
+    "00000000000000000000000000000000",
+    "0000000000000000000000000000000000000000000000000000000000000000",
+    "0000000000000000000000000000000000000000000000000000000000000000",
+    eth.hash([]),
+    []));
+var msg = JSON.stringify(blockchain.blocks['2bb51fdfe3638193e6ba7ad4492c5f826e4dd093ca0400becd3ebb6b7c53fc01'].to_json());
+console.log(msg);
+
 // create udp socket
 socket = udp.createSocket('udp4');
 socket.bind(PORT);
+
+function sendMsg(msg, port) {
+    socket.send(msg, remote.port,'localhost', function(error){
+        if(error){
+            console.log("Error: " + error);
+        }else{
+            console.log(msg + ' >>>>> ' + remote.port);
+        }
+    });
+}
 
 // emits on new datagram msg
 socket.on('message',function(msg,remote){
@@ -49,24 +74,24 @@ socket.on('message',function(msg,remote){
         case getPeersJson['type']:
         // Send peers to other nodes
         var msg = JSON.stringify(db);
-        socket.send(msg, remote.port,'localhost', function(error){
-            if(error){
-                console.log("Error: " + error);
-            }else{
-                console.log(msg + ' >>>>> ' + remote.port);
-            }
-        });
+        sendMsg(msg, remote.port);
         pushNewPort(remote.port);
         break;
 
         //---------------------------------------------------------------------
         case getBlkJson['type']:
-        // send block
+        // send specific block to other peers
+        var msg = JSON.stringify(blockchain.blocks[getBlkJson['hash']].to_json());
+        sendMsg(msg, remote.port);
+        pushNewPort(remote.port);
         break;
 
         //---------------------------------------------------------------------
         case getTipJson['type']:
         // send blockchain tip
+        var msg = JSON.stringify({'tip_hash':blockchain.get_tip()});
+        sendMsg(msg, remote.port);
+        pushNewPort(remote.port);
         break;
 
         //---------------------------------------------------------------------
