@@ -14,8 +14,15 @@ if (process.argv.length != 4) {
 const PORT = parseInt(process.argv[2]);
 const REMOTE = parseInt(process.argv[3]);
 
-// Message Templates
+// useful variables
+var blockchain = new eth.Blockchain; // TODO: Save blockchain in a file
+var socket = udp.createSocket('udp4');
+socket.bind(PORT);
+
+// Peer Database
 var db = {'type':'addr', 'known':[]};
+
+// Message Templates
 const getPeersJson = {'type':'getPeers', 'port':PORT};
 const getBlkJson = {'type':'getBlk', 'port':PORT, 'hash':eth.empty_hash};
 const getTipJson = {'type':'getBlk', 'port':PORT};
@@ -32,38 +39,52 @@ function randomPeer(){
 function pushNewPort(newPort){
     if ((!db['known'].includes(newPort)) && (newPort != PORT)){
         db['known'].push(newPort);
+        console.log(db);
     }
 }
 pushNewPort(REMOTE);
 
-// useful variables
-var blockchain = new eth.Blockchain // TODO: Save blockchain in a file
-
-// create udp socket
-socket = udp.createSocket('udp4');
-socket.bind(PORT);
-
 function sendMsg(msg, port) {
-    socket.send(msg, remote.port,'localhost', function(error){
+    socket.send(msg, port,'localhost', function(error){
         if(error){
             console.log("Error: " + error);
         }else{
-            console.log(msg + ' >>>>> ' + remote.port);
+            console.log(msg + ' >>>>> ' + port);
         }
     });
 }
 
+function getPeers(remote) {
+    var getPeersMsg = JSON.stringify(getPeersJson);
+    sendMsg(getPeersMsg, remote);
+}
+
+function getTip(remote) {
+
+}
+
+function getBlock(hash, remote) {
+
+}
+
+function broadcast(msg) {
+    db['known'].forEach(function(peer, index) {
+        sendMsg(msg, peer);
+    });
+}
+
 // emits on new datagram msg
-socket.on('message',function(msg,remote){
-    console.log(msg.toString() + ' <<<<< ' + remote.port)
+socket.on('message',function(msg, remote){
+    console.log(msg.toString() + ' <<<<< ' + remote.port);
     var req = JSON.parse(msg);
 
     switch(req['type']){
         //---------------------------------------------------------------------
         case getPeersJson['type']:
         // Send peers to other nodes
-        var msg = JSON.stringify(db);
-        sendMsg(msg, remote.port);
+        var dbStr = JSON.stringify(db);
+        console.log(dbStr);
+        sendMsg(dbStr, remote.port);
         pushNewPort(remote.port);
         break;
 
@@ -120,17 +141,20 @@ socket.on('close',function(){
     console.log('Socket is closed !');
 });
 
+//------------- TESTS -------------\\
+// getPeers
 setInterval(function() {
-    console.log("Getting new peers...");
-
-    //send msg
-    var getPeersMsg = JSON.stringify(getPeersJson);
-    var dest = randomPeer();
-    socket.send(getPeersMsg, dest, 'localhost', function(error){
-        if(error){
-            console.log("Error: " + error);
-        }else{
-            console.log(getPeersMsg + ' >>>>> ' + dest);
-        }
-    });
+    console.log("getPeers");
+    var remote = randomPeer();
+    getPeers(remote);
 },5000);
+
+// getTip
+setInterval(function() {
+    console.log("getTip");
+},6000);
+
+// getBlock
+setInterval(function() {
+    console.log("getBlock");
+},7000);
