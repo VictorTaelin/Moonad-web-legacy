@@ -16,6 +16,7 @@ const REMOTE = parseInt(process.argv[3]);
 
 // useful variables
 var blockchain = new eth.Blockchain; // TODO: Save blockchain in a file
+blockchain.add(empty_block());
 var socket = udp.createSocket('udp4');
 socket.bind(PORT);
 
@@ -26,6 +27,7 @@ var db = {'type':'addr', 'known':[]};
 const getPeersJson = {'type':'getPeers', 'port':PORT};
 const getBlkJson = {'type':'getBlk', 'port':PORT, 'hash':eth.empty_hash};
 const getTipJson = {'type':'getBlk', 'port':PORT};
+const sendBlockJson = {'type':'newBlk', 'port':PORT, 'hash':eth.empty_hash, 'block':empty_block()};
 
 // Useful functions
 function randomInt(max){
@@ -33,12 +35,12 @@ function randomInt(max){
 }
 
 function randomPeer(){
-    return db['known'][randomInt(db['known'].length)];
+    return db.known[randomInt(db.known.length)];
 }
 
 function pushNewPort(newPort){
-    if ((!db['known'].includes(newPort)) && (newPort != PORT)){
-        db['known'].push(newPort);
+    if ((!db.known.includes(newPort)) && (newPort != PORT)){
+        db.known.push(newPort);
         console.log(db);
     }
 }
@@ -55,32 +57,41 @@ function sendMsg(msg, port) {
 }
 
 function getPeers(remote) {
-    var getPeersMsg = JSON.stringify(getPeersJson);
-    sendMsg(getPeersMsg, remote);
+    sendMsg(JSON.stringify(getPeersJson), remote);
 }
 
 function getTip(remote) {
-
+    sendMsg(JSON.stringify(getTipJson), remote);
 }
 
 function getBlock(hash, remote) {
-
+    var getBlk = getBlkJson;
+    getBlk.hash = hash;
+    sendMsg(JSON.stringify(getBlk), remote);
 }
 
 function broadcast(msg) {
-    db['known'].forEach(function(peer, index) {
+    db.known.forEach(function(peer, index) {
         sendMsg(msg, peer);
     });
 }
 
+function broadcastBlock(blk){
+    var msg = sendBlockJson;
+    msg.hash = blk.hash();
+    msg.block = blk;
+    broadcast(JSON.stringify(msg));
+}
+
+// Event Handlers
 // emits on new datagram msg
 socket.on('message',function(msg, remote){
     console.log(msg.toString() + ' <<<<< ' + remote.port);
     var req = JSON.parse(msg);
 
-    switch(req['type']){
+    switch(req.type){
         //---------------------------------------------------------------------
-        case getPeersJson['type']:
+        case getPeersJson.type:
         // Send peers to other nodes
         var dbStr = JSON.stringify(db);
         console.log(dbStr);
@@ -89,7 +100,7 @@ socket.on('message',function(msg, remote){
         break;
 
         //---------------------------------------------------------------------
-        case getBlkJson['type']:
+        case getBlkJson.type:
         // send specific block to other peers
         var msg = JSON.stringify(blockchain.blocks[getBlkJson['hash']].to_json());
         sendMsg(msg, remote.port);
@@ -97,7 +108,7 @@ socket.on('message',function(msg, remote){
         break;
 
         //---------------------------------------------------------------------
-        case getTipJson['type']:
+        case getTipJson.type:
         // send blockchain tip
         var msg = JSON.stringify({'tip_hash':blockchain.get_tip()});
         sendMsg(msg, remote.port);
@@ -105,10 +116,26 @@ socket.on('message',function(msg, remote){
         break;
 
         //---------------------------------------------------------------------
-        case db['type']:
+        case db.type:
         req['known'].forEach(function(item, index){
             pushNewPort(item);
         });
+        break;
+
+        //---------------------------------------------------------------------
+        case sendBlockJson.type:
+        var newBlock = new eth.Block;
+        newBlock.from_json(req.block);
+        // check if block is valid and different from tip
+        if ((newBlock.is_valid()) &&
+            (newBlock.hash() === req.hash) &&
+            (req.hash !== blockchain.get_tip())) {
+            console.log("NEW BLOCK RECEIVED!")
+            // add block to blockchain
+            blockchain.add(newBlock);
+            // broadcast block to other peers
+            broadcastBlock(newBlock);
+        }
         break;
 
         //---------------------------------------------------------------------
@@ -158,3 +185,27 @@ setInterval(function() {
 setInterval(function() {
     console.log("getBlock");
 },7000);
+
+// newBlock
+setInterval(function(){
+    console.log("Discovered new block!");
+    // create block
+    var blk = empty_block(blockchain.get_tip());
+    // add block to Blockchain
+    blockchain.add(blk);
+    //console.log("\n\n\n\n============================\n" + blockchain.show() + "\n=======================================\n\n\n\n");
+    broadcastBlock(blk);
+}, 10000);
+
+
+// -------------- TEST FUNCTIONS ---------------- \\
+function empty_block(prev_hash, extra) {
+    return new eth.Block(
+        "0000000000000000",
+        "0000000000000000",
+        extra || "00000000000000000000000000000000",
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        prev_hash || "0000000000000000000000000000000000000000000000000000000000000000",
+        eth.hash([]),
+        []);
+}

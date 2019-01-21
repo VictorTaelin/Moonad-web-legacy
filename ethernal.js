@@ -57,6 +57,17 @@ class Block {
         };
         return json;
     };
+
+    from_json(json) {
+        this.time = json.time // string (hex of 64 bits, POSIX time)
+        this.nonce = json.nonce // string (hex of 64 bits)
+        this.extra = json.extra // string (hex of 128 bits)
+        this.difficulty = json.difficulty // string (hex of 256 bits)
+        this.prev_hash = json.prev_hash // string (hex of 256 bits)
+        this.posts_hash = json.posts_hash // string (hex of 256 bits)
+        this.posts = json.posts // [string]
+        return this;
+    }
 }
 
 class Blockchain {
