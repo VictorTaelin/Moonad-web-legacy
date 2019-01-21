@@ -120,10 +120,6 @@ class Blockchain {
         };
         return text;
     };
-
-    test() {
-        console.log("works");
-    };
 }
 
 function main() {

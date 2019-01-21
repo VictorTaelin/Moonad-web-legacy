@@ -26,8 +26,8 @@ var db = {'type':'addr', 'known':[]};
 // Message Templates
 const getPeersJson = {'type':'getPeers', 'port':PORT};
 const getBlkJson = {'type':'getBlk', 'port':PORT, 'hash':eth.empty_hash};
-const getTipJson = {'type':'getBlk', 'port':PORT};
-const sendBlockJson = {'type':'newBlk', 'port':PORT, 'hash':eth.empty_hash, 'block':empty_block()};
+const getTipJson = {'type':'getTip', 'port':PORT};
+const sendBlockJson = {'type':'block', 'port':PORT, 'hash':eth.empty_hash, 'block':empty_block()};
 
 // Useful functions
 function randomInt(max){
@@ -51,7 +51,7 @@ function sendMsg(msg, port) {
         if(error){
             console.log("Error: " + error);
         }else{
-            console.log(msg + ' >>>>> ' + port);
+            //console.log(msg + ' >>>>> ' + port);
         }
     });
 }
@@ -86,36 +86,42 @@ function broadcastBlock(blk){
 // Event Handlers
 // emits on new datagram msg
 socket.on('message',function(msg, remote){
-    console.log(msg.toString() + ' <<<<< ' + remote.port);
+    //console.log(msg.toString() + ' <<<<< ' + remote.port);
     var req = JSON.parse(msg);
 
     switch(req.type){
         //---------------------------------------------------------------------
         case getPeersJson.type:
-        // Send peers to other nodes
+        // Another client requested list of peers
         var dbStr = JSON.stringify(db);
-        console.log(dbStr);
         sendMsg(dbStr, remote.port);
         pushNewPort(remote.port);
         break;
 
         //---------------------------------------------------------------------
+        // Another client requested a specific block
         case getBlkJson.type:
-        // send specific block to other peers
-        var msg = JSON.stringify(blockchain.blocks[getBlkJson['hash']].to_json());
-        sendMsg(msg, remote.port);
+        var msg = sendBlockJson;
+        msg.block = blockchain.blocks[req.hash];
+        msg.hash = req.hash;
+
+        sendMsg(JSON.stringify(msg), remote.port);
         pushNewPort(remote.port);
         break;
 
         //---------------------------------------------------------------------
+        // Another client requested blockchain tip
         case getTipJson.type:
-        // send blockchain tip
-        var msg = JSON.stringify({'tip_hash':blockchain.get_tip()});
-        sendMsg(msg, remote.port);
+        var msg = sendBlockJson;
+        msg.block = blockchain.blocks[blockchain.get_tip()];
+        msg.hash = blockchain.get_tip();
+
+        sendMsg(JSON.stringify(msg), remote.port);
         pushNewPort(remote.port);
         break;
 
         //---------------------------------------------------------------------
+        // Received response from getPeers
         case db.type:
         req['known'].forEach(function(item, index){
             pushNewPort(item);
@@ -123,18 +129,23 @@ socket.on('message',function(msg, remote){
         break;
 
         //---------------------------------------------------------------------
+        // Received block
         case sendBlockJson.type:
         var newBlock = new eth.Block;
         newBlock.from_json(req.block);
-        // check if block is valid and different from tip
+        // check if block is valid and not yet on local blockchain copy
         if ((newBlock.is_valid()) &&
             (newBlock.hash() === req.hash) &&
-            (req.hash !== blockchain.get_tip())) {
-            console.log("NEW BLOCK RECEIVED!")
+            (!blockchain.blocks[req.hash])) {
             // add block to blockchain
             blockchain.add(newBlock);
             // broadcast block to other peers
             broadcastBlock(newBlock);
+            console.log("Blockchain len = " + Object.keys(blockchain.blocks).length);
+            // if previous block is not on local blockchain copy, request previous block
+            if(!blockchain.blocks[req.block.prev_hash]){
+                getBlock(req.block.prev_hash, remote.port);
+            }
         }
         break;
 
@@ -171,20 +182,24 @@ socket.on('close',function(){
 //------------- TESTS -------------\\
 // getPeers
 setInterval(function() {
-    console.log("getPeers");
+    //console.log("getPeers");
     var remote = randomPeer();
     getPeers(remote);
 },5000);
 
 // getTip
 setInterval(function() {
-    console.log("getTip");
+    //console.log("getTip");
+    var remote = randomPeer();
+    getTip(remote);
 },6000);
 
 // getBlock
-setInterval(function() {
+/*setInterval(function() {
     console.log("getBlock");
-},7000);
+    var remote = randomPeer();
+    getBlock(remote);
+},7000);*/
 
 // newBlock
 setInterval(function(){
@@ -194,9 +209,13 @@ setInterval(function(){
     // add block to Blockchain
     blockchain.add(blk);
     //console.log("\n\n\n\n============================\n" + blockchain.show() + "\n=======================================\n\n\n\n");
+    console.log("===> Blockchain len = " + Object.keys(blockchain.blocks).length);
     broadcastBlock(blk);
 }, 10000);
 
+/*setInterval(function(){
+    console.log("Blockchain len = " + Object.keys(blockchain.blocks).length);
+}, 2000);*/
 
 // -------------- TEST FUNCTIONS ---------------- \\
 function empty_block(prev_hash, extra) {
