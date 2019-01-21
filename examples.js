@@ -150,31 +150,79 @@ var example = `
       (S -(to_ind n) ih)
     (%i (P i) (ind_reflection i) (+i -motive case_z case_s))
 
-  ind_induction
-
   def add [n : Ind]
     let motive [n : Ind] {m : Ind} Ind
-    let case_s [-n : Ind] [i : {m : Ind} Ind] [m : Ind] (succ (i m)) 
+    let case_s [-n : Ind] [i : {m : Ind} Ind] [m : Ind] (step (i m)) 
     let case_z [m : Ind] m
-    (nat_induction n -motive case_z case_s)
+    (ind_induction n -motive case_z case_s)
 
   def add_n_zero [n : Ind]
     let motive [n : Ind]
       |(add n zero) = n|
     let case_z
-      $zero zero
+      $base base
     let case_s [-n : Ind] [i : (motive n)]
-      (cong -Ind -Ind -(add n zero) -n -i -succ)
-    (nat_induction n -motive case_z case_s)
+      (cong -Ind -Ind -(add n base) -n -i -step)
+    (ind_induction n -motive case_z case_s)
 
   def add_n_succ_m [n : Ind]
     let motive [n : Ind]
-      {m : Ind} |(add n (succ m)) = (succ (add n m))|
+      {m : Ind} |(add n (step m)) = (step (add n m))|
     let case_z [m : Ind]
-      $(succ m) (succ m)
+      $(step m) (step m)
     let case_s [-n : Ind] [i : (motive n)] [m : Ind]
-      (cong -Ind -Ind -(add n (succ m)) -(succ (add n m)) -(i m) -succ)
-    (nat_induction n -motive case_z case_s)
+      (cong -Ind -Ind -(add n (step m)) -(step (add n m)) -(i m) -step)
+    (ind_induction n -motive case_z case_s)
+
+  def Pair
+    [A : Type]
+    [B : {a : A} Type]
+    {Pair : Type}
+    {new : {a : A} {b : (B a)} Pair}
+    Pair
+
+  def new
+    [A : Type]
+    [B : {a : A} Type]
+    [a : A]
+    [b : (B a)]
+    [Pair : Type]
+    [new : {a : A} {b : (B a)} Pair]
+    (new a b)
+
+  def Sigma
+    [A : Type]
+    [B : {a : A} Type]
+    <self : (Pair A B)>
+    {Sigma : {self : (Pair A B)} Type}
+    {exist : {a : A} {b : (B a)} (Sigma (new A B a b))}
+    (Sigma self)
+
+  def exist
+    [A : Type]
+    [B : {a : A} Type]
+    [a : A]
+    [b : (B a)]
+    : (Sigma A B)
+    = (new A B a b)
+    & [Sigma : {self : (Pair A B)} Type]
+      [exist : {a : A} {b : (B a)} (Sigma (new A B a b))]
+      (exist a b)
+
+  def base : Ind = zero &
+    [-Ind : {n : Nat} Type]
+    [base : (Ind zero)]
+    [step : {-n : Nat} {i : (Ind n)} (Ind (succ n))]
+    base
+
+  def step [n : Ind] : Ind = (succ .n) &
+    [-Ind : {n : Nat} Type]
+    [base : (Ind zero)]
+    [step : {-n : Nat} {i : (Ind n)} (Ind (succ n))]
+    (step -.n (+n -Ind base step))
+    
+  (step (step (step (step base))))
+
 
   def add_comm [n : Ind]
     let motive [n : Ind]
