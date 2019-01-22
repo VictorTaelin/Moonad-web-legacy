@@ -2,7 +2,7 @@ keccak256 = require("./keccak");
 
 function hash(strings) {
     return keccak256(strings.join(""));
-};   
+};
 
 const empty_hash = "0000000000000000000000000000000000000000000000000000000000000000"
 
@@ -43,16 +43,41 @@ class Block {
         }
         return text
     };
+
+    to_json() {
+        var json = {
+            'hash':this.hash(),
+            'time':this.time,
+            'nonce':this.nonce,
+            'extra':this.extra,
+            'difficulty':this.difficulty,
+            'prev_hash':this.prev_hash,
+            'posts_hash':this.posts_hash,
+            'posts':this.posts
+        };
+        return json;
+    };
+
+    from_json(json) {
+        this.time = json.time // string (hex of 64 bits, POSIX time)
+        this.nonce = json.nonce // string (hex of 64 bits)
+        this.extra = json.extra // string (hex of 128 bits)
+        this.difficulty = json.difficulty // string (hex of 256 bits)
+        this.prev_hash = json.prev_hash // string (hex of 256 bits)
+        this.posts_hash = json.posts_hash // string (hex of 256 bits)
+        this.posts = json.posts // [string]
+        return this;
+    }
 }
 
 class Blockchain {
     constructor(){
         this.blocks = {};
     };
-    
+
     add(block) {
         if (!block.is_valid()) {
-            throw "Attempted to add invalid block." 
+            throw "Attempted to add invalid block."
         }
         this.blocks[block.hash()] = block;
     };
@@ -131,6 +156,13 @@ function main() {
     console.log(blockchain.get_tip());
 }
 
+module.exports = {
+    Block: Block,
+    Blockchain: Blockchain,
+    hash: hash,
+    empty_hash: empty_hash,
+}
+
 
 // test();
-main();
+//main();
