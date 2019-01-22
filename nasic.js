@@ -5,11 +5,11 @@ class Pointer {
     this.port = port; // integer (0, 1 or 2, representing the target port)
   }
 
-  str() {
+  to_string() {
     return this.addr + 'abc'[this.port];
   }
   
-  eq(other) {
+  equal(other) {
     return other !== null && this.addr === other.addr && this.port === other.port;
   }
 }
@@ -21,8 +21,8 @@ class Node {
     this.ports = ports; // array with 3 pointers (this node's edges)
   }
 
-  str() {
-    return '[' + this.label + '|' + this.ports[0].str() + ' ' + this.ports[1].str() + ' ' + this.ports[2].str() + ']';
+  to_string() {
+    return '[' + this.label + '|' + this.ports[0].to_string() + ' ' + this.ports[1].to_string() + ' ' + this.ports[2].to_string() + ']';
   }
 }
  
@@ -31,7 +31,7 @@ class Net {
   constructor() {
     this.nodes = []; // nodes
     this.freed = []; // integers
-    this.redex = []; // array of (pointers, pointer) tuples
+    this.redex = []; // array of (integer, integer) tuples representing addrs
   }
 
   // Allocates a new node, return its addr
@@ -80,7 +80,7 @@ class Net {
   // Disconnects a port, causing both sides to point to themselves
   unlink_port(a_ptr) {
     var b_ptr = this.enter_port(a_ptr);
-    if (this.enter_port(b_ptr) === a_ptr) {
+    if (this.enter_port(b_ptr).equal(a_ptr)) {
       this.nodes[a_ptr.addr].ports[a_ptr.port] = a_ptr;
       this.nodes[b_ptr.addr].ports[b_ptr.port] = b_ptr;
     }
@@ -135,11 +135,11 @@ class Net {
     return [this, rewrite_count];
   }
 
-  str() {
+  to_string() {
     var text = '';
     for (var i = 0; i < this.nodes.length; i++) {
       if (this.nodes[i] !== null) {
-        text += i + ': ' + this.nodes[i].str() + '\n';
+        text += i + ': ' + this.nodes[i].to_string() + '\n';
       } else {
         text += i + ': ' + null + '\n';
       }
