@@ -208,7 +208,7 @@ class All {
     var bind_t = this.bind.check(context);
     var body_t = this.body.check(context.extend([this.name, bind_v]));
     if (!bind_t.eval(false).equal(new Typ()) || !body_t.eval(false).equal(new Typ())) {
-      throw "Forall not a type. Context:\n" + context.show();
+      throw "Forall not a type: " + this.to_string(context) + "\n- Context:\n" + context.show();
     }
     return new Typ();
   }
@@ -297,7 +297,7 @@ class App {
     var text = ")";
     var self = this;
     while (self instanceof App) {
-      text = " " + (self.eras ? "-" : "") + self.argm.to_string(context) + text;
+      text = " " + (self.eras ? "-" : "") + (self.argm?self.argm.to_string(context):"???") + text;
       self = self.func;
     }
     return "(" + self.to_string(context) + text;
@@ -345,8 +345,8 @@ class App {
     var argm_t = this.argm.check(context);
     var expect = func_t.bind;
     var actual = argm_t;
-    if (!func_t instanceof All) {
-      throw "Non-function application. Context:\n" + context.show();
+    if (!(func_t instanceof All)) {
+      throw "Non-function application on `" + this.to_string(context) + "`.\n- Context:\n" + context.show();
     }
     if (func_t.eras !== this.eras) {
       throw "Mismatched erasure on " + this.to_string(context) + ".";
@@ -713,7 +713,7 @@ class Sym {
 }
 
 // Type-guided rewritting (allows replacing equal terms in types)
-// Syntax: &x (P x) e t
+// Syntax: %x (P x) e t
 class Rwt {
   constructor(name, type, iseq, term) {
     this.name = name;
@@ -817,7 +817,130 @@ class Cst {
   }
 }
 
-function string_to_term(code) {
+// Put 
+class Put {
+  constructor(term) {
+    this.term = term;
+  }
+
+  to_string(context = new Context([])) {
+    return "#" + this.term.to_string(context);
+  }
+
+  shift(depth, inc) {
+    return new Put(this.term.shift(depth, inc));
+  }
+
+  subst(depth, val) {
+    return new Put(this.term.subst(depth, val));
+  }
+
+  equal(other) {
+    if (other instanceof Put) {
+      return this.term.equal(other.term);
+    }
+    return false;
+  }
+
+  eval(except_bind) {
+    return this.term.eval(except_bind);
+  }
+
+  check(context = new Context([])) {
+    return new Box(this.term.check(context));
+  }
+}
+
+// Box 
+class Box {
+  constructor(term) {
+    this.term = term;
+  }
+
+  to_string(context = new Context([])) {
+    return "!" + this.term.to_string(context);
+  }
+
+  shift(depth, inc) {
+    return new Box(this.term.shift(depth, inc));
+  }
+
+  subst(depth, val) {
+    return new Box(this.term.subst(depth, val));
+  }
+
+  equal(other) {
+    if (other instanceof Box) {
+      return this.term.equal(other.term);
+    }
+    return false;
+  }
+
+  eval(except_bind) {
+    return new Box(this.term.eval(except_bind));
+  }
+
+  check(context = new Context([])) {
+    var term_t = this.term.check(context);
+    if (!term_t.eval(false).equal(new Typ())) {
+      throw "Boxed term not a type:" + this.to_string(context) + "\n- Context:\n" + context.show();
+    }
+    return new Typ();
+  }
+}
+
+// Duplication
+class Dup {
+  constructor(name, term, body) {
+    this.name = name; // String
+    this.term = term; // Term
+    this.body = body; // Term
+  }
+
+  to_string(context = new Context([])) {
+    var name = this.name;
+    var term = this.term.to_string(context);
+    var body = this.body.to_string(context.extend([this.name, null]));
+    return "dup " + name + " " + term + " " + body;
+  }
+
+  shift(depth, inc) {
+    var name = this.name;
+    var term = this.term.shift(depth, inc);
+    var body = this.body.shift(depth + 1, inc);
+    return new Dup(name, term, body);
+  }
+
+  subst(depth, val) {
+    var name = this.name;
+    var term = this.term.subst(depth, val);
+    var body = this.body.subst(depth + 1, val && val.shift(0, 1));
+    return new Dup(name, term, body);
+  }
+
+  equal(other) {
+    if (other instanceof Dup) {
+      var term = this.term.equal(other.term);
+      var body = this.body.equal(other.body);
+      return term && body;
+    }
+    return false;
+  }
+
+  eval(except_bind) {
+    return this.body.subst(0, this.term).eval(except_bind);
+  }
+
+  check(context = new Context([])) {
+    var term_t = this.term.check(context);
+    if (!(term_t instanceof Box)) {
+      throw context.show_mismatch(term_t, new Box(term_t),  "copy of unboxed value " + this.term.to_string(context));
+    }
+    return this.body.check(context.extend([this.name, term_t.term])).subst(0, this.term);
+  }
+}
+
+function parse(code) {
   var index = 0;
 
   function is_space(char) {
@@ -986,6 +1109,26 @@ function string_to_term(code) {
       return new Cst(iseq, val0, val1);
     }
 
+    // Put
+    else if (match("#")) {
+      var term = parse_term(context);
+      return new Put(term);
+    }
+
+    // Box
+    else if (match("!")) {
+      var term = parse_term(context);
+      return new Box(term);
+    }
+
+    // Copy
+    else if (match("dup")) {
+      var name = parse_name();
+      var term = parse_term(context);
+      var body = parse_term(context.extend([name, null]));
+      return new Dup(name, term, body);
+    }
+
     // Definition
     else if (match("def")) {
       var name = parse_name();
@@ -1020,4 +1163,4 @@ function string_to_term(code) {
   return parse_term(new Context([]));
 }
 
-module.exports = string_to_term;
+module.exports = {Context, Ref, Typ, All, Lam, App, Var, Dep, New, Fst, Snd, Eql, Rfl, Sym, Rwt, Cst, Put, Box, Dup, parse};

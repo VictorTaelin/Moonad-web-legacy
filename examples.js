@@ -1,4 +1,5 @@
 var formality = require("./formality.js");
+var compiler = require("./compiler.js");
 
 var example = `
   -- Congruence of equality
@@ -8,8 +9,8 @@ var example = `
 
   -- Unit type
 
-  def Unit {Unit : Type} {the : Unit} Unit
-  def the  [Unit : Type] [the : Unit] the
+  def Unit {-Unit : Type} {the : Unit} Unit
+  def the  [-Unit : Type] [the : Unit] the
 
   -- Example use of cong
 
@@ -35,6 +36,12 @@ var example = `
     [true : Bool]
     [fals : Bool]
     fals
+
+  def not [a : CBool]
+    [-Bool : Type]
+    [true : Bool]
+    [fals : Bool]
+    (a -Bool fals true)
 
   def Bool <self : CBool>
     {-Bool : {b : CBool} Type}
@@ -71,56 +78,70 @@ var example = `
     let motive [b : CBool](P (b -Bool true fals))
     let case_t T
     let case_f F
-    (%x (P x) (bool_reflection b) (+b -motive case_t case_t))
+    (%x (P x)
+      (bool_reflection b)
+      (+b -motive case_t case_t))
 
   -- Natural numbers
 
   def Nat
     {-Nat : Type}
-    {zero  : Nat}
-    {succ  : {x : Nat} Nat}
-    Nat
+    {succ : !{x : Nat} Nat}
+    ! {zero : Nat}
+      Nat
 
   def succ
     [n    : Nat]
     [-Nat : Type]
-    [zero : Nat]
-    [succ : {x : Nat} Nat]
-    (succ (n -Nat zero succ))
+    [succ : !{x : Nat} Nat]
+    dup S succ
+    dup N (n -Nat #S)
+    # [zero : Nat]
+      (S (N zero))
 
   def zero
     [-Nat : Type]
-    [zero : Nat]
-    [succ : {x : Nat} Nat]
-    zero
+    [succ : !{x : Nat} Nat]
+    # [zero : Nat]
+      zero
 
-  def n0 (the Nat zero)
-  def n1 (the Nat (succ n0))
-  def n2 (the Nat (succ n1))
-  def n3 (the Nat (succ n2))
-  def n4 (the Nat (succ n3))
+  def nat_id [n : Nat] 
+    [-Nat : Type]
+    [succ : !{x : Nat} Nat]
+    dup N (n -Nat succ)
+    # [zero : Nat]
+      (N zero)
+
+  def n0 (the -Nat zero)
+  def n1 (the -Nat (succ n0))
+  def n2 (the -Nat (succ n1))
+  def n3 (the -Nat (succ n2))
+  def n4 (the -Nat (succ n3))
 
   -- Inductive hypothesis on natural numbers
 
   def Ind <self : Nat>
     {-Ind : {n : Nat} Type}
-    {base : (Ind zero)}
-    {step : {-n : Nat} {i : (Ind n)} (Ind (succ n))}
-    (Ind self)
-
-  def base : Ind = zero &
-    [-Ind : {n : Nat} Type]
-    [base : (Ind zero)]
-    [step : {-n : Nat} {i : (Ind n)} (Ind (succ n))]
-    base
+    {step : ! {-n : Nat} {i : (Ind n)} (Ind (succ n))}
+    ! {base : (Ind zero)}
+      (Ind self)
 
   def step [n : Ind] : Ind = (succ .n) &
     [-Ind : {n : Nat} Type]
-    [base : (Ind zero)]
-    [step : {-n : Nat} {i : (Ind n)} (Ind (succ n))]
-    (step -.n (+n -Ind base step))
+    [step : ! {-n : Nat} {i : (Ind n)} (Ind (succ n))]
+    dup S step
+    dup N (+n -Ind #S)
+    # [base : (Ind zero)]
+      (S -.n (N base))
 
-  def to_ind [n : Nat] (n -Ind base step)
+  def base : Ind = zero &
+    [-Ind : {n : Nat} Type]
+    [step : ! {-n : Nat} {i : (Ind n)} (Ind (succ n))]
+    # [base : (Ind zero)]
+      base
+
+  def to_ind [n : Nat] 
+    dup N (n -Ind #step) # (N base)
 
   def i0 (to_ind n0)
   def i1 (to_ind n1)
@@ -128,14 +149,21 @@ var example = `
   def i3 (to_ind n3)
   def i4 (to_ind n3)
 
+  (the -{x:Nat}!Ind to_ind)
+
+  -- TODO: is it possible to implement (to_ind : {x : Nat} Ind)?
+  -- TODO: migrade from here below
+
   def ind_reflection [i : Ind]
     let motive [n : Nat]
       |.(to_ind n) = n|
-    let case_z
-      ($zero [x] x)
     let case_s [-n : Nat] [i : |.(to_ind n) = n|]
       (cong -Nat -Nat -.(to_ind n) -n -i -succ)
-    (+i -motive case_z case_s)
+    let case_z
+      ($zero [x] x)
+    (+i -motive case_s case_s)
+
+  ind_reflection
 
   def ind_induction
     [i  : Ind]
@@ -221,9 +249,6 @@ var example = `
     [step : {-n : Nat} {i : (Ind n)} (Ind (succ n))]
     (step -.n (+n -Ind base step))
     
-  (step (step (step (step base))))
-
-
   def add_comm [n : Ind]
     let motive [n : Ind]
       {m : Ind} |(add n m) = (add m n)|
@@ -236,7 +261,11 @@ var example = `
   add_comm
 `;
 
-var term = formality(example);
-console.log("Input:\n" + term.to_string() + "\n");
-console.log("Normal:\n" + term.eval().to_string() + "\n");
+var term = formality.parse(example);
+console.log("Term:\n" + term.to_string() + "\n");
+console.log("Norm:\n" + term.eval().to_string() + "\n");
 console.log("Type:\n" + term.check().to_string() + "\n");
+console.log(":::::: Compiling to net :::::::\n");
+console.log("Term:\n" + compiler.decompile(compiler.compile(term)).to_string() + "\n");
+console.log("Norm:\n" + compiler.decompile(compiler.compile(term).reduce()[0]).to_string() + "\n");
+console.log("Rwts:\n" + compiler.compile(term).reduce()[1] + "\n");
