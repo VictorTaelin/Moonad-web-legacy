@@ -1,8 +1,7 @@
 var {Pointer, Node, Net} = require("./nasic.js");
-var {Lam, Var, App, Put, Dup, Ref, New, Fst, Snd} = require("./formality.js");
+var {Lam, Var, App, Put, Dup, Ref, New, Fst, Snd, Rwt, Rfl} = require("./formality.js");
 
-
-function compile(term) {
+function compile(term, unsafe) {
   var level_of = {};
 
   function check_stratification(term, vars, level) {
@@ -99,7 +98,7 @@ function compile(term) {
       if (!net.enter_port(ptr) || net.enter_port(ptr).equal(ptr)) {
         return ptr;
       } else {
-        var dup_addr = net.alloc_node(level_of[ptr.to_string()] + 2);
+        var dup_addr = net.alloc_node((unsafe ? ptr.addr : level_of[ptr.to_string()]) + 2);
         net.link_ports(new Pointer(dup_addr, 0), ptr);
         net.link_ports(new Pointer(dup_addr, 1), dups_ptr);
         return new Pointer(dup_addr, 2);
@@ -121,6 +120,14 @@ function compile(term) {
     else if (term instanceof Put) {
       return build_net(term.term, net, var_ptrs, level + 1);
     }
+
+    else if (term instanceof Rwt) {
+      return build_net(term.term, net, var_ptrs, level);
+    }
+
+    else if (term instanceof Rfl) {
+      return build_net(term.eras, net, var_ptrs, level);
+    }
     
     else if (term instanceof Dup) {
       var term_ptr = build_net(term.term, net, var_ptrs, level);
@@ -140,7 +147,9 @@ function compile(term) {
     }
   }
 
-  check_stratification(term, [], 0);
+  if (!unsafe) {
+    check_stratification(term, [], 0);
+  }
   
   var net = new Net();
   var root_addr = net.alloc_node(0);

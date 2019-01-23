@@ -86,31 +86,22 @@ var example = `
 
   def Nat
     {-Nat : Type}
-    {succ : !{x : Nat} Nat}
-    ! {zero : Nat}
-      Nat
+    {succ : {x : Nat} Nat}
+    {zero : Nat}
+    Nat
 
   def succ
     [n    : Nat]
     [-Nat : Type]
-    [succ : !{x : Nat} Nat]
-    dup S succ
-    dup N (n -Nat #S)
-    # [zero : Nat]
-      (S (N zero))
+    [succ : {x : Nat} Nat]
+    [zero : Nat]
+    (succ (n -Nat succ zero))
 
   def zero
     [-Nat : Type]
-    [succ : !{x : Nat} Nat]
-    # [zero : Nat]
-      zero
-
-  def nat_id [n : Nat] 
-    [-Nat : Type]
-    [succ : !{x : Nat} Nat]
-    dup N (n -Nat succ)
-    # [zero : Nat]
-      (N zero)
+    [succ : {x : Nat} Nat]
+    [zero : Nat]
+    zero
 
   def n0 (the -Nat zero)
   def n1 (the -Nat (succ n0))
@@ -122,37 +113,30 @@ var example = `
 
   def Ind <self : Nat>
     {-Ind : {n : Nat} Type}
-    {step : ! {-n : Nat} {i : (Ind n)} (Ind (succ n))}
-    ! {base : (Ind zero)}
-      (Ind self)
+    {step : {-n : Nat} {i : (Ind n)} (Ind (succ n))}
+    {base : (Ind zero)}
+    (Ind self)
 
   def step [n : Ind] : Ind = (succ .n) &
     [-Ind : {n : Nat} Type]
-    [step : ! {-n : Nat} {i : (Ind n)} (Ind (succ n))]
-    dup S step
-    dup N (+n -Ind #S)
-    # [base : (Ind zero)]
-      (S -.n (N base))
+    [step : {-n : Nat} {i : (Ind n)} (Ind (succ n))]
+    [base : (Ind zero)]
+    (step -.n (+n -Ind step base))
 
   def base : Ind = zero &
     [-Ind : {n : Nat} Type]
-    [step : ! {-n : Nat} {i : (Ind n)} (Ind (succ n))]
-    # [base : (Ind zero)]
-      base
+    [step : {-n : Nat} {i : (Ind n)} (Ind (succ n))]
+    [base : (Ind zero)]
+    base
 
   def to_ind [n : Nat] 
-    dup N (n -Ind #step) # (N base)
+    (n -Ind step base)
 
   def i0 (to_ind n0)
   def i1 (to_ind n1)
   def i2 (to_ind n2)
   def i3 (to_ind n3)
   def i4 (to_ind n3)
-
-  (the -{x:Nat}!Ind to_ind)
-
-  -- TODO: is it possible to implement (to_ind : {x : Nat} Ind)?
-  -- TODO: migrade from here below
 
   def ind_reflection [i : Ind]
     let motive [n : Nat]
@@ -161,104 +145,47 @@ var example = `
       (cong -Nat -Nat -.(to_ind n) -n -i -succ)
     let case_z
       ($zero [x] x)
-    (+i -motive case_s case_s)
-
-  ind_reflection
+    (+i -motive case_s case_z)
 
   def ind_induction
     [i  : Ind]
     [-P : {i : Ind} Type]
-    [Z  : (P base)]
     [S  : {-i : Ind} {ih : (P i)} (P (step i))]
+    [Z  : (P base)]
     let motive [n : Nat]
       (P (to_ind n))
-    let case_z
-      Z
     let case_s [-n : Nat] [ih : (P (to_ind n))]
       (S -(to_ind n) ih)
-    (%i (P i) (ind_reflection i) (+i -motive case_z case_s))
+    let case_z
+      Z
+    (%i (P i) (ind_reflection i) (+i -motive case_s case_z))
 
   def add [n : Ind]
     let motive [n : Ind] {m : Ind} Ind
     let case_s [-n : Ind] [i : {m : Ind} Ind] [m : Ind] (step (i m)) 
     let case_z [m : Ind] m
-    (ind_induction n -motive case_z case_s)
+    (ind_induction n -motive case_s case_z)
 
   def add_n_zero [n : Ind]
     let motive [n : Ind]
       |(add n zero) = n|
-    let case_z
-      $base base
     let case_s [-n : Ind] [i : (motive n)]
       (cong -Ind -Ind -(add n base) -n -i -step)
-    (ind_induction n -motive case_z case_s)
+    let case_z
+      $base base
+    (ind_induction n -motive case_s case_z)
+
 
   def add_n_succ_m [n : Ind]
     let motive [n : Ind]
       {m : Ind} |(add n (step m)) = (step (add n m))|
-    let case_z [m : Ind]
-      $(step m) (step m)
     let case_s [-n : Ind] [i : (motive n)] [m : Ind]
       (cong -Ind -Ind -(add n (step m)) -(step (add n m)) -(i m) -step)
-    (ind_induction n -motive case_z case_s)
-
-  def Pair
-    [A : Type]
-    [B : {a : A} Type]
-    {Pair : Type}
-    {new : {a : A} {b : (B a)} Pair}
-    Pair
-
-  def new
-    [A : Type]
-    [B : {a : A} Type]
-    [a : A]
-    [b : (B a)]
-    [Pair : Type]
-    [new : {a : A} {b : (B a)} Pair]
-    (new a b)
-
-  def Sigma
-    [A : Type]
-    [B : {a : A} Type]
-    <self : (Pair A B)>
-    {Sigma : {self : (Pair A B)} Type}
-    {exist : {a : A} {b : (B a)} (Sigma (new A B a b))}
-    (Sigma self)
-
-  def exist
-    [A : Type]
-    [B : {a : A} Type]
-    [a : A]
-    [b : (B a)]
-    : (Sigma A B)
-    = (new A B a b)
-    & [Sigma : {self : (Pair A B)} Type]
-      [exist : {a : A} {b : (B a)} (Sigma (new A B a b))]
-      (exist a b)
-
-  def base : Ind = zero &
-    [-Ind : {n : Nat} Type]
-    [base : (Ind zero)]
-    [step : {-n : Nat} {i : (Ind n)} (Ind (succ n))]
-    base
-
-  def step [n : Ind] : Ind = (succ .n) &
-    [-Ind : {n : Nat} Type]
-    [base : (Ind zero)]
-    [step : {-n : Nat} {i : (Ind n)} (Ind (succ n))]
-    (step -.n (+n -Ind base step))
-    
-  def add_comm [n : Ind]
-    let motive [n : Ind]
-      {m : Ind} |(add n m) = (add m n)|
     let case_z [m : Ind]
-      ~(add_n_zero m)
-    let case_s [-n : Ind] [i : (motive n)] [m : Ind]
-      Type
-    (nat_induction n -motive case_z case_s)
+      $(step m) (step m)
+    (ind_induction n -motive case_s case_z)
 
-  add_comm
+  add_n_succ_m
 `;
 
 var term = formality.parse(example);
@@ -266,6 +193,6 @@ console.log("Term:\n" + term.to_string() + "\n");
 console.log("Norm:\n" + term.eval().to_string() + "\n");
 console.log("Type:\n" + term.check().to_string() + "\n");
 console.log(":::::: Compiling to net :::::::\n");
-console.log("Term:\n" + compiler.decompile(compiler.compile(term)).to_string() + "\n");
-console.log("Norm:\n" + compiler.decompile(compiler.compile(term).reduce()[0]).to_string() + "\n");
-console.log("Rwts:\n" + compiler.compile(term).reduce()[1] + "\n");
+console.log("Term:\n" + compiler.decompile(compiler.compile(term, true)).to_string() + "\n");
+console.log("Norm:\n" + compiler.decompile(compiler.compile(term, true).reduce()[0]).to_string() + "\n");
+console.log("Rwts:\n" + compiler.compile(term, true).reduce()[1] + "\n");
