@@ -2,197 +2,143 @@ var formality = require("./formality.js");
 var compiler = require("./compiler.js");
 
 var example = `
-  -- Congruence of equality
-
-  def cong [-A : Type] [-B : Type] [-x : A] [-y : A] [-e : |x = y|] [-f : {x : A} B]
-    (%k |(f x) = (f k)| e ($(f x) [x] x))
+  def the 
+    [-T : Type]
+    [x  : T]
+    x
 
   -- Unit type
 
-  def Unit {-Unit : Type} {the : Unit} Unit
-  def the  [-Unit : Type] [the : Unit] the
+  def Unit @ self =
+    {-Unit. : {self : Unit} Type}
+    {void.  : (Unit. void)}
+    (Unit. self)
 
-  -- Example use of cong
+  def void : Unit =
+    [-Unit. : {self : Unit} Type]
+    [void.  : (Unit. void)]
+    void.
 
-  def cong_example [a : Unit] [b : Unit] [e : |a = b|]
-    (cong -Unit -Unit -a -b -e -(the Unit))
+  -- Boolean
 
-  -- Boolean type construction
+  def Bool @ self =
+    {-Bool. : {self : Bool} Type}
+    {true.  : (Bool. true)}
+    {fals.  : (Bool. fals)}
+    (Bool. self)
 
-  def CBool
-    {-Bool : Type}
-    {true : Bool}
-    {fals : Bool}
-    Bool
+  def true : Bool =
+    [-Bool. : {self : Bool} Type]
+    [true.  : (Bool. true)]
+    [fals.  : (Bool. fals)]
+    true.
 
-  def ctrue
-    [-Bool : Type]
-    [true : Bool]
-    [fals : Bool]
-    true
+  def fals : Bool =
+    [-Bool. : {self : Bool} Type]
+    [true.  : (Bool. true)]
+    [fals.  : (Bool. fals)]
+    fals.
 
-  def cfals
-    [-Bool : Type]
-    [true : Bool]
-    [fals : Bool]
-    fals
+  def bool_ind
+    [self   : Bool]
+    [-Bool. : {self : Bool} Type]
+    [true.  : (Bool. true)]
+    [fals.  : (Bool. fals)]
+    (~self -Bool. true. fals.)
 
-  def not [a : CBool]
-    [-Bool : Type]
-    [true : Bool]
-    [fals : Bool]
-    (a -Bool fals true)
-
-  def Bool <self : CBool>
-    {-Bool : {b : CBool} Type}
-    {true : (Bool ctrue)}
-    {fals : (Bool cfals)}
-    (Bool self)
-
-  def true : Bool = ctrue &
-    [-Bool : {b : CBool} Type]
-    [true : (Bool ctrue)]
-    [fals : (Bool cfals)]
-    true
-
-  def fals : Bool = cfals &
-    [-Bool : {b : CBool} Type]
-    [true : (Bool ctrue)]
-    [fals : (Bool cfals)]
-    fals
-
-  -- Proof of reflexivity: ∀ b. |(b true false) = b|
-
-  def bool_reflection [b : Bool]
-    let motive [b : CBool]|(b true fals) = b|
-    let case_t ($ctrue ctrue)
-    let case_f ($cfals cfals)
-    (+b -motive case_t case_f)
-
-  -- Induction principle
-
-  def bool_induction [b : Bool]
-    [-P : {b : Bool} Type]
-    [T  : (P true)]
-    [F  : (P fals)]
-    let motive [b : CBool](P (b -Bool true fals))
-    let case_t T
-    let case_f F
-    (%x (P x)
-      (bool_reflection b)
-      (+b -motive case_t case_t))
+  def not [b : Bool]
+    (~b -([self : Bool] Bool) fals true)
 
   -- Natural numbers
 
-  def Nat
-    {-Nat : Type}
-    {succ : {x : Nat} Nat}
-    {zero : Nat}
-    Nat
+  def Nat @ self = 
+    {-Nat. : {self : Nat} Type}
+    {succ. : {-pred : Nat} {&pred : (Nat. pred)} (Nat. (succ pred))}
+    {zero. : (Nat. zero)}
+    (Nat. self)
 
-  def succ
-    [n    : Nat]
-    [-Nat : Type]
-    [succ : {x : Nat} Nat]
-    [zero : Nat]
-    (succ (n -Nat succ zero))
+  def succ [pred : Nat] : Nat =
+    [-Nat. : {self : Nat} Type]
+    [succ. : {-pred : Nat} {&pred : (Nat. pred)} (Nat. (succ pred))]
+    [zero. : (Nat. zero)]
+    (succ. -pred (~pred -Nat. succ. zero.))
 
-  def zero
-    [-Nat : Type]
-    [succ : {x : Nat} Nat]
-    [zero : Nat]
-    zero
+  def zero : Nat =
+    [-Nat. : {self : Nat} Type]
+    [succ. : {-pred : Nat} {&pred : (Nat. pred)} (Nat. (succ pred))]
+    [zero. : (Nat. zero)]
+    zero.
 
-  def n0 (the -Nat zero)
-  def n1 (the -Nat (succ n0))
-  def n2 (the -Nat (succ n1))
-  def n3 (the -Nat (succ n2))
-  def n4 (the -Nat (succ n3))
+  def nat_ind
+    [self  : Nat]
+    [-Nat. : {self : Nat} Type]
+    [succ. : {-pred : Nat} {&pred : (Nat. pred)} (Nat. (succ pred))]
+    [zero. : (Nat. zero)]
+    (~self -Nat. succ. zero.)
 
-  -- Inductive hypothesis on natural numbers
+  def 0 zero
+  def 1 (succ 0)
+  def 2 (succ 1)
+  def 3 (succ 2)
+  def 4 (succ 3)
 
-  def Ind <self : Nat>
-    {-Ind : {n : Nat} Type}
-    {step : {-n : Nat} {i : (Ind n)} (Ind (succ n))}
-    {base : (Ind zero)}
-    (Ind self)
+  -- Equality
 
-  def step [n : Ind] : Ind = (succ .n) &
-    [-Ind : {n : Nat} Type]
-    [step : {-n : Nat} {i : (Ind n)} (Ind (succ n))]
-    [base : (Ind zero)]
-    (step -.n (+n -Ind step base))
+  def Eq [-A : Type] [a : A] [b : A] @ self =
+    {-Eq.  : {-A : Type} {a : A} {b : A} {self : (Eq -A a b)} Type}
+    {refl. : {-A : Type} {-t : A} (Eq. -A t t (refl -A -t))}
+    (Eq. -A a b self)
 
-  def base : Ind = zero &
-    [-Ind : {n : Nat} Type]
-    [step : {-n : Nat} {i : (Ind n)} (Ind (succ n))]
-    [base : (Ind zero)]
-    base
+  def refl [-A : Type] [-t : A] : (Eq -A t t) =
+    [-Eq.  : {-A : Type} {a : A} {b : A} {self : (Eq -A a b)} Type]
+    [refl. : {-A : Type} {-t : A} (Eq. -A t t (refl -A -t))]
+    (refl. -A -t)
 
-  def to_ind [n : Nat] 
-    (n -Ind step base)
+  def sym [-A : Type] [-a : A] [-b : A] [e : (Eq -A a b)]
+    (~e -[-A : Type] [a : A] [b : A] [self : (Eq -A a b)] (Eq -A a b)
+         [-A : Type] [-t : A]                             (refl -A -t))
 
-  def i0 (to_ind n0)
-  def i1 (to_ind n1)
-  def i2 (to_ind n2)
-  def i3 (to_ind n3)
-  def i4 (to_ind n3)
+  def cong [-A : Type] [-B : Type] [-a : A] [-b : A] [e : (Eq -A a b)]
+    (~e -[-A : Type] [a : A] [b : A] [self : (Eq -A a b)] {-f : {x : A} B} (Eq -B (f a) (f b))
+         [-A : Type] [-t : A]                             [-f : {x : A} B] (refl -B -(f t)))
 
-  def ind_reflection [i : Ind]
-    let motive [n : Nat]
-      |.(to_ind n) = n|
-    let case_s [-n : Nat] [i : |.(to_ind n) = n|]
-      (cong -Nat -Nat -.(to_ind n) -n -i -succ)
-    let case_z
-      ($zero [x] x)
-    (+i -motive case_s case_z)
+  def subst [-A : Type] [-a : A] [-b : A] [e : (Eq -A a b)]
+    (~e -[-A : Type] [a : A] [b : A] [self : (Eq -A a b)] {-P : {x : A} Type} {px : (P a)} (P b) 
+         [-A : Type] [-t : A]                             [-P : {x : A} Type] [px : (P t)] px)
 
-  def ind_induction
-    [i  : Ind]
-    [-P : {i : Ind} Type]
-    [S  : {-i : Ind} {ih : (P i)} (P (step i))]
-    [Z  : (P base)]
-    let motive [n : Nat]
-      (P (to_ind n))
-    let case_s [-n : Nat] [ih : (P (to_ind n))]
-      (S -(to_ind n) ih)
-    let case_z
-      Z
-    (%i (P i) (ind_reflection i) (+i -motive case_s case_z))
+  -- Natural number theorems
 
-  def add [n : Ind]
-    let motive [n : Ind] {m : Ind} Ind
-    let case_s [-n : Ind] [i : {m : Ind} Ind] [m : Ind] (step (i m)) 
-    let case_z [m : Ind] m
-    (ind_induction n -motive case_s case_z)
+  def add [a : Nat]
+    let motive [self : Nat]
+      {b : Nat} Nat
+    let case_succ [-pred : Nat] [&pred : {b : Nat} Nat]
+      [b : Nat] (succ (&pred b))
+    let case_zero
+      [b : Nat] b
+    (~a -motive case_succ case_zero)
 
-  def add_n_zero [n : Ind]
-    let motive [n : Ind]
-      |(add n zero) = n|
-    let case_s [-n : Ind] [i : (motive n)]
-      (cong -Ind -Ind -(add n base) -n -i -step)
-    let case_z
-      $base base
-    (ind_induction n -motive case_s case_z)
+  -- ∀ n . n + 0 == n
 
+  def add_n_zero [n : Nat]
+    def motive [self : Nat]
+      (Eq -Nat (add self zero) self)
+    def case_succ [-pred : Nat] [&pred : (Eq -Nat (add pred zero) pred)]
+      (cong -Nat -Nat -(add pred zero) -pred &pred -succ)
+    def case_zero
+      (refl -Nat -zero)
+    (~n -motive case_succ case_zero)
 
-  def add_n_succ_m [n : Ind]
-    let motive [n : Ind]
-      {m : Ind} |(add n (step m)) = (step (add n m))|
-    let case_s [-n : Ind] [i : (motive n)] [m : Ind]
-      (cong -Ind -Ind -(add n (step m)) -(step (add n m)) -(i m) -step)
-    let case_z [m : Ind]
-      $(step m) (step m)
-    (ind_induction n -motive case_s case_z)
-
-  add_n_succ_m
+  (the
+    -{n : Nat}(Eq -Nat (add n zero) n)
+    add_n_zero)
 `;
 
 var term = formality.parse(example);
 console.log("Term:\n" + term.to_string() + "\n");
-console.log("Norm:\n" + term.eval().to_string() + "\n");
-console.log("Type:\n" + term.check().to_string() + "\n");
-console.log(":::::: Compiling to net :::::::\n");
-console.log("Term:\n" + compiler.decompile(compiler.compile(term, true)).to_string() + "\n");
-console.log("Norm:\n" + compiler.decompile(compiler.compile(term, true).reduce()[0]).to_string() + "\n");
-console.log("Rwts:\n" + compiler.compile(term, true).reduce()[1] + "\n");
+console.log("Type:\n" + term.check().eval(false, false).to_string() + "\n");
+console.log("Eval:\n" + term.erase().eval(true, true).to_string() + "\n");
+
+//console.log(":::::: Compiling to net :::::::\n");
+//console.log("Term:\n" + compiler.decompile(compiler.compile(term, true)).to_string() + "\n");
+//console.log("Norm:\n" + compiler.decompile(compiler.compile(term, true).reduce()[0]).to_string() + "\n");
+//console.log("Rwts:\n" + compiler.compile(term, true).reduce()[1] + "\n");
