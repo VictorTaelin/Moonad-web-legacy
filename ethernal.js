@@ -176,8 +176,6 @@ class Client {
         this.peers = []; // Peers to which the client is connected.
         this.blockchain = new Blockchain; // TODO: Save blockchain in a file
         this.socket = udp.createSocket('udp4');
-
-        console.log(this.peers.length);
     };
 
     // Returns a random peer from Client.peers
@@ -213,12 +211,18 @@ class Client {
 
     // Returns TRUE if peer is not connected and FALSE otherwise
     peerIsNew(peer) {
+        var isNew = true;
+        // If 'peer' has the same address as 'client' return FALSE
+        if ((peer.host == this.host) && (peer.port == this.port)) {
+            isNew = false;
+        }
+        // Else, look for peer in the list of connected peers
         this.peers.forEach(function (knownPeer, index) {
-            if((knownPeer.host === peer.host) && (knownPeer.port === peer.port)) {
-                return false;
+            if((knownPeer.host == peer.host) && (knownPeer.port == peer.port)) {
+                isNew = false;
             }
         });
-        return true;
+        return isNew;
     };
 
     // Adds a new peer to this.peers where
@@ -226,9 +230,11 @@ class Client {
     // remotePort - the port to which the remote node is listening
     // remoteTime - the UTC timestamp received from the remote node
     addPeer(remoteHost, remotePort, remoteTime) {
+        var peer = new Peer(remoteHost, remotePort, 0);
+        console.log("ADD_PEER: " + JSON.stringify(peer));
         if (this.peerIsNew(peer)) {
             var offset = this.localTime() - remoteTime;
-            var peer = new Peer(remoteHost, remotePort, offset);
+            peer.offset = offset;
             this.peers.push(peer);
 
             /////// DEBUGGING ONLY! ///////
@@ -270,7 +276,7 @@ class Client {
         var msg = getTipJson;
         msg.host = this.host;
         msg.port = this.port;
-        sendMsg(JSON.stringify(msg), peer);
+        this.sendMsg(JSON.stringify(msg), peer);
     };
 
     getBlock(hash, peer) {
@@ -278,13 +284,13 @@ class Client {
         msg.host = this.host;
         msg.port = this.port;
         msg.hash = hash;
-        sendMsg(JSON.stringify(msg), peer);
+        this.sendMsg(JSON.stringify(msg), peer);
     };
 
     broadcast(msg) {
         this.peers.forEach(function(peer, index) {
-            sendMsg(msg, peer);
-        });
+            this.sendMsg(msg, peer);
+        }.bind(this));
     };
 
     broadcastBlock(blk){
@@ -293,7 +299,7 @@ class Client {
         msg.port = this.port;
         msg.hash = blk.hash();
         msg.block = blk;
-        broadcast(JSON.stringify(msg));
+        this.broadcast(JSON.stringify(msg));
     };
 
     timestampIsValid(block){
@@ -319,8 +325,8 @@ class Client {
         if (prevBlk !== undefined) {
             var medianTimestamp = prevBlk.time;
             return (((block.time > medianTimestamp) &&
-                     (block.time < networkAdjustedTime() + 7200)) ||
-                     (Object.keys(blockchain.blocks).length < 11)); // If blockchain len < 11, return TRUE
+                     (block.time < this.networkAdjustedTime() + 7200)) ||
+                     (Object.keys(this.blockchain.blocks).length < 11)); // If blockchain len < 11, return TRUE
         }
         return false;
     };
@@ -331,22 +337,22 @@ class Client {
         /* Socket Event Handlers */
         // emits on new datagram msg
         this.socket.on('message',function(msg, remote) {
-            console.log(msg.toString() + ' <<<<< ' + remote.port);
+            //console.log(msg.toString() + ' <<<<< ' + remote.port);
             var req = JSON.parse(msg);
 
             switch(req.type){
                 //---------------------------------------------------------------------
                 case requestConnJson.type:
                 // Another client requested a connection
-                console.log("Received connection request from " + req.port + " with time = " + req.time);
-                this.addPeer(req.host, req.port, req.time);
-                var respPeer = new Peer(req.host, req.port, 0);
-                var resp = acceptConnJson;
-                resp.host = this.host;
-                resp.port = this.port;
-                resp.time = this.localTime();
-                console.log("Sending response: " + JSON.stringify(resp));
-                this.sendMsg(JSON.stringify(resp), respPeer);
+                    console.log("Received connection request from " + req.port + " with time = " + req.time);
+                    this.addPeer(req.host, req.port, req.time);
+                    var respPeer = new Peer(req.host, req.port, 0);
+                    var resp = acceptConnJson;
+                    resp.host = this.host;
+                    resp.port = this.port;
+                    resp.time = this.localTime();
+                    console.log("Sending response: " + JSON.stringify(resp));
+                    this.sendMsg(JSON.stringify(resp), respPeer);
                 break;
 
                 //---------------------------------------------------------------------
@@ -359,28 +365,30 @@ class Client {
                 //---------------------------------------------------------------------
                 case getPeersJson.type:
                 // Another client requested list of peers
-                var dbStr = JSON.stringify(db);
-                sendMsg(dbStr, remote.port);
+                var db = sendPeersJson
+                db.peers = this.peers.slice();
+                var respPeer = new Peer(req.host, req.port, 0);
+                this.sendMsg(JSON.stringify(db), respPeer);
                 break;
 
                 //---------------------------------------------------------------------
                 // Another client requested a specific block
                 case getBlkJson.type:
                 var msg = sendBlockJson;
-                msg.block = blockchain.blocks[req.hash];
+                msg.block = this.blockchain.blocks[req.hash];
                 msg.hash = req.hash;
-
-                sendMsg(JSON.stringify(msg), remote.port);
+                var respPeer = new Peer(req.host, req.port, 0);
+                this.sendMsg(JSON.stringify(msg), respPeer);
                 break;
 
                 //---------------------------------------------------------------------
                 // Another client requested blockchain tip
                 case getTipJson.type:
                 var msg = sendBlockJson;
-                msg.block = blockchain.blocks[blockchain.get_tip()];
-                msg.hash = blockchain.get_tip();
-
-                sendMsg(JSON.stringify(msg), remote.port);
+                msg.block = this.blockchain.blocks[this.blockchain.get_tip()];
+                msg.hash = this.blockchain.get_tip();
+                var respPeer = new Peer(req.host, req.port, 0);
+                this.sendMsg(JSON.stringify(msg), respPeer);
                 break;
 
                 //---------------------------------------------------------------------
@@ -389,30 +397,31 @@ class Client {
                 req.peers.forEach(function(peer, index) {
                     // TODO: Implement a way to resend request in case a response does
                     // not arrive
-                    if (peerIsNew(peer)) {
-                        requestConnection(peer);
+                    if (this.peerIsNew(peer)) {
+                        this.requestConnection(peer);
                     }
-                });
+                }.bind(this));
                 break;
 
                 //---------------------------------------------------------------------
                 // Received block
                 case sendBlockJson.type:
                 if (req.block) {
-                    var newBlock = new eth.Block;
+                    var newBlock = new Block;
                     newBlock.from_json(req.block);
                     // check if block is valid and not yet on local blockchain copy
                     if ((newBlock.is_valid()) &&
                         (newBlock.hash() === req.hash) &&
-                        (!blockchain.blocks[req.hash])) {
+                        (!this.blockchain.blocks[req.hash])) {
                         // add block to blockchain
-                        blockchain.add(newBlock);
+                        this.blockchain.add(newBlock);
                         // broadcast block to other peers
-                        broadcastBlock(newBlock);
-                        console.log("Blockchain len = " + Object.keys(blockchain.blocks).length);
+                        this.broadcastBlock(newBlock);
+                        console.log("Blockchain len = " + Object.keys(this.blockchain.blocks).length);
                         // if previous block is not on local blockchain copy, request previous block
-                        if(!blockchain.blocks[req.block.prev_hash]){
-                            getBlock(req.block.prev_hash, remote.port);
+                        if(!this.blockchain.blocks[req.block.prev_hash]){
+                            var respPeer = new Peer(req.host, req.port, 0);
+                            this.getBlock(req.block.prev_hash, respPeer);
                         }
                     }
                 }
@@ -450,12 +459,14 @@ class Client {
     };
 
     run() {
-        var test = this.tick
-        //setInterval(test.bind(this), 500);
-        setInterval(function(){this.tick()}.bind(this), 500);
-
         //------------- TESTS -------------\\
         // getPeers
+        // ATTENTION!
+        // If the local node receives a connection request, it will stop trying
+        // to connect to the original 'remote' node. If this happens, it is possible
+        // that the local node accidentally isolates itself from the main chain.
+        // TODO: Solve this issue by forcing the node to connect to its origial
+        // 'remote' node even after accepting connections from different nodes.
         setInterval(function() {
             //console.log("getPeers");
             if (this.peers.length > 0){
@@ -467,30 +478,35 @@ class Client {
                 this.requestConnection(remote);
             }
         }.bind(this),5000);
-/*
+
         // getTip
         setInterval(function() {
             //console.log("getTip");
             if (this.peers.length > 0){
-                var remote = randomPeer();
-                getTip(remote);
+                var remote = this.randomPeer();
+                this.getTip(remote);
             }
-        },6000);
+        }.bind(this),6000);
 
         // newBlock
         setInterval(function(){
             console.log("Discovered new block!");
             // create block
-            var blk = empty_block(blockchain.get_tip());
+            var blk = new Block(
+                this.localTime(),
+                "0000000000000000",
+                "00000000000000000000000000000000",
+                "0000000000000000000000000000000000000000000000000000000000000000",
+                this.blockchain.get_tip(),
+                hash([]),
+                []);
             // add block to Blockchain
-            blockchain.add(blk);
-            //console.log("\n\n\n\n============================\n" + blockchain.show() + "\n=======================================\n\n\n\n");
-            console.log("===> Blockchain len = " + Object.keys(blockchain.blocks).length);
-            broadcastBlock(blk);
-        }, 10000);*/
+            this.blockchain.add(blk);
+            console.log("===> Blockchain len = " + Object.keys(this.blockchain.blocks).length);
+            // Broadcast new block
+            this.broadcastBlock(blk);
+        }.bind(this), 10000);
     };
-
-    tick(){console.log('.')};
 }
 
 // 'Client' class private constants
