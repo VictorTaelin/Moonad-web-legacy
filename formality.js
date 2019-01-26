@@ -624,7 +624,7 @@ function parse(code) {
   }
 
   function is_name_char(char) {
-    return "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.&".indexOf(char) !== -1;
+    return "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.&=-<>".indexOf(char) !== -1;
   }
 
   function skip_spaces() {

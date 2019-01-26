@@ -7,6 +7,12 @@ var example = `
     [x  : T]
     x
 
+  -- Empty type
+
+  def Empty @ self :
+    {-Empty. : {self : Empty} Type}
+    (Empty. self)
+
   -- Unit type
 
   def Unit @ self :
@@ -82,32 +88,6 @@ var example = `
   def 3 (succ 2)
   def 4 (succ 3)
 
-  -- Equality
-
-  def Eq [-A : Type] [a : A] [b : A] @ self :
-    {-Eq.  : {-A : Type} {a : A} {b : A} {self : (Eq -A a b)} Type}
-    {refl. : {-A : Type} {-t : A} (Eq. -A t t (refl -A -t))}
-    (Eq. -A a b self)
-
-  def refl [-A : Type] [-t : A] : (Eq -A t t) =
-    [-Eq.  : {-A : Type} {a : A} {b : A} {self : (Eq -A a b)} Type]
-    [refl. : {-A : Type} {-t : A} (Eq. -A t t (refl -A -t))]
-    (refl. -A -t)
-
-  def symm [-A : Type] [-a : A] [-b : A] [e : (Eq -A a b)]
-    (~e -[-A : Type] [a : A] [b : A] [self : (Eq -A a b)] (Eq -A b a)
-         [-A : Type] [-t : A]                             (refl -A -t))
-
-  def cong [-A : Type] [-B : Type] [-a : A] [-b : A] [e : (Eq -A a b)]
-    (~e -[-A : Type] [a : A] [b : A] [self : (Eq -A a b)] {-f : {x : A} B} (Eq -B (f a) (f b))
-         [-A : Type] [-t : A]                             [-f : {x : A} B] (refl -B -(f t)))
-
-  def subs [-A : Type] [-a : A] [-b : A] [e : (Eq -A a b)]
-    (~e -[-A : Type] [a : A] [b : A] [self : (Eq -A a b)] {-P : {x : A} Type} {x : (P a)} (P b) 
-         [-A : Type] [-t : A]                             [-P : {x : A} Type] [x : (P t)] x)
-
-  -- Natural number theorems
-
   def add [a : Nat]
     let motive [self : Nat]
       {b : Nat} Nat
@@ -125,6 +105,31 @@ var example = `
     let case_zero
       zero
     (~a -motive case_succ case_zero)
+
+  -- Equality
+
+  def Eq [-A : Type] [a : A] [b : A] @ self :
+    {-Eq.  : {b : A} {self : (Eq -A a b)} Type}
+    {refl. : (Eq. a (refl -A -a))}
+    (Eq. b self)
+
+  def refl [-A : Type] [-a : A] : (Eq -A a a) =
+    [-Eq.  : {b : A} {self : (Eq -A a b)} Type]
+    [refl. : (Eq. a (refl -A -a))]
+    refl.
+
+  def symm [-A : Type] [-a : A] [-b : A] [e : (Eq -A a b)]
+    (~e -[b : A] [self : (Eq -A a b)] (Eq -A b a) (refl -A -a))
+
+  def cong [-A : Type] [-B : Type] [-a : A] [-b : A] [e : (Eq -A a b)]
+    (~e -[b : A] [self : (Eq -A a b)] {-f : {x : A} B} (Eq -B (f a) (f b))
+         [-f : {x : A} B] (refl -B -(f a)))
+
+  def subs [-A : Type] [-a : A] [-b : A] [e : (Eq -A a b)]
+    (~e -[b : A] [self : (Eq -A a b)] {-P : {x : A} Type} {x : (P a)} (P b) 
+         [-P : {x : A} Type] [x : (P a)] x)
+
+  -- Natural number theorems
 
   -- (add n 0) == n
 
@@ -162,7 +167,10 @@ var example = `
       (subs -Nat -(add m n) -(add n m) a -[x : Nat](Eq -Nat (succ x) (add m (succ n))) c)
     (~n -motive case_succ case_zero)
 
-  add_comm
+  def Eq_true_fals_implies_Empty [e : (Eq -Bool true fals)]
+    (~e -[b : Bool] [self:(Eq -Bool true b)] (~b -[x:Bool]Type Unit Empty) void)
+
+  (the -{e : (Eq -Bool true fals)}Empty Eq_true_fals_implies_Empty)
 `;
 
 var term = formality.parse(example);
