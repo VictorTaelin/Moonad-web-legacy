@@ -9,7 +9,7 @@ var example = `
 
   -- Unit type
 
-  def Unit @ self =
+  def Unit @ self :
     {-Unit. : {self : Unit} Type}
     {void.  : (Unit. void)}
     (Unit. self)
@@ -21,7 +21,7 @@ var example = `
 
   -- Boolean
 
-  def Bool @ self =
+  def Bool @ self :
     {-Bool. : {self : Bool} Type}
     {true.  : (Bool. true)}
     {fals.  : (Bool. fals)}
@@ -39,7 +39,7 @@ var example = `
     [fals.  : (Bool. fals)]
     fals.
 
-  def bool_ind
+  def bool_induction
     [self   : Bool]
     [-Bool. : {self : Bool} Type]
     [true.  : (Bool. true)]
@@ -51,7 +51,7 @@ var example = `
 
   -- Natural numbers
 
-  def Nat @ self = 
+  def Nat @ self :
     {-Nat. : {self : Nat} Type}
     {succ. : {-pred : Nat} {&pred : (Nat. pred)} (Nat. (succ pred))}
     {zero. : (Nat. zero)}
@@ -69,7 +69,7 @@ var example = `
     [zero. : (Nat. zero)]
     zero.
 
-  def nat_ind
+  def nat_induction
     [self  : Nat]
     [-Nat. : {self : Nat} Type]
     [succ. : {-pred : Nat} {&pred : (Nat. pred)} (Nat. (succ pred))]
@@ -84,7 +84,7 @@ var example = `
 
   -- Equality
 
-  def Eq [-A : Type] [a : A] [b : A] @ self =
+  def Eq [-A : Type] [a : A] [b : A] @ self :
     {-Eq.  : {-A : Type} {a : A} {b : A} {self : (Eq -A a b)} Type}
     {refl. : {-A : Type} {-t : A} (Eq. -A t t (refl -A -t))}
     (Eq. -A a b self)
@@ -94,17 +94,17 @@ var example = `
     [refl. : {-A : Type} {-t : A} (Eq. -A t t (refl -A -t))]
     (refl. -A -t)
 
-  def sym [-A : Type] [-a : A] [-b : A] [e : (Eq -A a b)]
-    (~e -[-A : Type] [a : A] [b : A] [self : (Eq -A a b)] (Eq -A a b)
+  def symm [-A : Type] [-a : A] [-b : A] [e : (Eq -A a b)]
+    (~e -[-A : Type] [a : A] [b : A] [self : (Eq -A a b)] (Eq -A b a)
          [-A : Type] [-t : A]                             (refl -A -t))
 
   def cong [-A : Type] [-B : Type] [-a : A] [-b : A] [e : (Eq -A a b)]
     (~e -[-A : Type] [a : A] [b : A] [self : (Eq -A a b)] {-f : {x : A} B} (Eq -B (f a) (f b))
          [-A : Type] [-t : A]                             [-f : {x : A} B] (refl -B -(f t)))
 
-  def subst [-A : Type] [-a : A] [-b : A] [e : (Eq -A a b)]
-    (~e -[-A : Type] [a : A] [b : A] [self : (Eq -A a b)] {-P : {x : A} Type} {px : (P a)} (P b) 
-         [-A : Type] [-t : A]                             [-P : {x : A} Type] [px : (P t)] px)
+  def subs [-A : Type] [-a : A] [-b : A] [e : (Eq -A a b)]
+    (~e -[-A : Type] [a : A] [b : A] [self : (Eq -A a b)] {-P : {x : A} Type} {x : (P a)} (P b) 
+         [-A : Type] [-t : A]                             [-P : {x : A} Type] [x : (P t)] x)
 
   -- Natural number theorems
 
@@ -117,26 +117,55 @@ var example = `
       [b : Nat] b
     (~a -motive case_succ case_zero)
 
-  -- ∀ n . n + 0 == n
+  -- (add n 0) == n
 
   def add_n_zero [n : Nat]
-    def motive [self : Nat]
+    let motive [self : Nat]
       (Eq -Nat (add self zero) self)
-    def case_succ [-pred : Nat] [&pred : (Eq -Nat (add pred zero) pred)]
+    let case_succ [-pred : Nat] [&pred : (Eq -Nat (add pred zero) pred)]
       (cong -Nat -Nat -(add pred zero) -pred &pred -succ)
-    def case_zero
+    let case_zero
       (refl -Nat -zero)
     (~n -motive case_succ case_zero)
 
-  (the
-    -{n : Nat}(Eq -Nat (add n zero) n)
-    add_n_zero)
+  -- (add n (succ m)) = (succ (add n m))
+
+  def add_n_succ_m [n : Nat]
+    let motive [self : Nat]
+      {-m : Nat} (Eq -Nat (add self (succ m)) (succ (add self m)))
+    let case_succ [-n : Nat] [&n : (motive n)] [-m : Nat]
+      (cong -Nat -Nat -(add n (succ m)) -(succ (add n m)) (&n -m) -succ)
+    let case_zero
+      [-m : Nat] (refl -Nat -(succ m))
+    (~n -motive case_succ case_zero)
+
+  -- (add n m) = (add m n)
+
+  def add_comm [n : Nat]
+    let motive [n : Nat]
+      {m : Nat} (Eq -Nat (add n m) (add m n))
+    let case_zero [m : Nat]
+      (symm -Nat -(add m zero) -m (add_n_zero m))
+    let case_succ [-n : Nat] [i : (motive n)] [m : Nat]
+      let a (symm -Nat -(add n m) -(add m n) (i m))
+      let b (add_n_succ_m m -n)
+      let c (symm -Nat -(add m (succ n)) -(succ (add m n)) b)
+      (subs -Nat -(add m n) -(add n m) a -[x : Nat](Eq -Nat (succ x) (add m (succ n))) c)
+    (~n -motive case_succ case_zero)
+
+  add_comm
 `;
 
 var term = formality.parse(example);
+
 console.log("Term:\n" + term.to_string() + "\n");
-console.log("Type:\n" + term.check().eval(false, false).to_string() + "\n");
-console.log("Eval:\n" + term.erase().eval(true, true).to_string() + "\n");
+try {
+  console.log("Type:\n" + term.check().norm(false).to_string() + "\n");
+} catch (e) {
+  console.log("Type:\n" + e + "\n");
+}
+console.log("Norm (compact):\n" + term.head().norm(false).to_string(true) + "\n");
+console.log("Norm (full):\n" + term.norm(true).to_string(true) + "\n");
 
 //console.log(":::::: Compiling to net :::::::\n");
 //console.log("Term:\n" + compiler.decompile(compiler.compile(term, true)).to_string() + "\n");
