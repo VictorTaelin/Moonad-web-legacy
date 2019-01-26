@@ -32,7 +32,7 @@ const getBlkJson = {'type':'getBlk', 'port':PORT, 'hash':eth.empty_hash};
 const getTipJson = {'type':'getTip', 'port':PORT};
 const sendBlockJson = {'type':'block', 'port':PORT, 'hash':eth.empty_hash, 'block':empty_block()};
 
-// Useful general functions
+/* Useful general functions */
 function randomInt(max){
     return Math.trunc(Math.random() * max);
 }
@@ -43,17 +43,18 @@ function randomPeer(){
 
 function median(numbers) {
     var median = 0;
-    var numsLen = numbers.length;
-    numbers.sort();
+    var nums = numbers.slice(); // Copy input array to avoid mutability
+    var numsLen = nums.length;
+    nums.sort();
 
-    if (numsLen > 0) {
-        if (numsLen % 2 === 0) {
+    if (nums > 0) {
+        if (nums % 2 === 0) {
             // average of two middle numbers
-            median = (numbers[numsLen / 2 - 1] + numbers[numsLen / 2]) / 2;
+            median = (nums[numsLen / 2 - 1] + nums[numsLen / 2]) / 2;
         }
         else {
             // middle number only
-            median = numbers[(numsLen - 1) / 2];
+            median = nums[(numsLen - 1) / 2];
         }
     }
 
@@ -81,7 +82,7 @@ function networkAdjustedTime() {
     return localTime() + offset;
 }
 
-// Useful network functions
+/* Useful network functions */
 function peerIsNew(peer) {
     return ((!db.peers.includes(peer)) && (peer != PORT));
 }
@@ -160,7 +161,7 @@ function timestampIsValid(block){
              (Object.keys(blockchain.blocks).length < 11));
 }
 
-// Event Handlers
+/* Socket Event Handlers */
 // emits on new datagram msg
 socket.on('message',function(msg, remote){
     //console.log(msg.toString() + ' <<<<< ' + remote.port);

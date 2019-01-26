@@ -117,6 +117,15 @@ var example = `
       [b : Nat] b
     (~a -motive case_succ case_zero)
 
+  def mul [a : Nat] [b : Nat]
+    let motive [self : Nat]
+      Nat
+    let case_succ [-pred : Nat] [&pred : Nat]
+      (add b &pred)
+    let case_zero
+      zero
+    (~a -motive case_succ case_zero)
+
   -- (add n 0) == n
 
   def add_n_zero [n : Nat]
@@ -159,12 +168,15 @@ var example = `
 var term = formality.parse(example);
 
 console.log("Term:\n" + term.to_string() + "\n");
+
 try {
   console.log("Type:\n" + term.check().norm(false).to_string() + "\n");
 } catch (e) {
   console.log("Type:\n" + e + "\n");
 }
-console.log("Norm (compact):\n" + term.head().norm(false).to_string(true) + "\n");
+
+console.log("Norm (compact):\n" + term.head(true).norm(false).to_string(true) + "\n");
+
 console.log("Norm (full):\n" + term.norm(true).to_string(true) + "\n");
 
 //console.log(":::::: Compiling to net :::::::\n");

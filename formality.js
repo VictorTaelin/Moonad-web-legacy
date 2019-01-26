@@ -75,8 +75,8 @@ class Context {
     var index = 0;
     while (binds) {
       var [name, type, term] = binds.bind;
-      text += "- " + name + " : " + (term ? type.shift(0, index).norm(false, this).to_string(true, this) : "?") + "\n";
-      text += "- " + name + " = " + (term ? term.shift(0, index).norm(false, this).to_string(true, this) : "?") + "\n~\n";
+      text = "- " + name + " : " + (term ? type.shift(0, index).norm(false, this).to_string(true, this) : "?") + "\n"
+           + "- " + name + " = " + (term ? term.shift(0, index).norm(false, this).to_string(true, this) : "?") + "\n~\n" + text;
       binds = binds.rest;
       index += 1;
     }
