@@ -1,62 +1,8 @@
 var {Pointer, Node, Net} = require("./nasic.js");
-var {Lam, Var, App, Put, Dup, Ref, New, Fst, Snd, Rwt, Rfl} = require("./formality.js");
+var {Context, Lam, Var, App, Put, New, Use, Cpy, Ref, Let} = require("./formality.js");
 
-function compile(term, unsafe) {
+function compile(term) {
   var level_of = {};
-
-  function check_stratification(term, vars, level) {
-    if (term instanceof Lam) {
-      vars.push({name: term.name, type: "lam", uses: 0, level: level});
-      check_stratification(term.body, vars, level);
-      vars.pop();
-    }
-
-    else if (term instanceof App) {
-      check_stratification(term.func, vars, level);
-      check_stratification(term.argm, vars, level);
-    }
-
-    else if (term instanceof Var) {
-      var binder = vars[vars.length - term.index - 1];
-      if (!binder) {
-        throw "Unbound variable.";
-      }
-      binder.uses += 1;
-      if (binder.type === "lam" && binder.uses > 1) {
-        throw "Used linear variable `" + binder.name + "` more than once.";
-      }
-      if (binder.type === "dup" && level - binder.level !== 1) {
-        throw "Duplication variable `" + binder.name + "` should have exactly 1 surrounding box.";
-      }
-    }
-
-    else if (term instanceof New) {
-      check_stratification(term.val0, vars, level);
-    }
-
-    else if (term instanceof Fst) {
-      check_stratification(term.term, vars, level);
-    }
-
-    else if (term instanceof Snd) {
-      check_stratification(term.term, vars, level);
-    }
-
-    else if (term instanceof Put) {
-      check_stratification(term.term, vars, level + 1);
-    }
-
-    else if (term instanceof Dup) {
-      check_stratification(term.term, vars, level);
-      vars.push({name: term.name, type: "dup", uses: 0, level: level});
-      check_stratification(term.body, vars, level);
-      vars.pop();
-    }
-
-    else if (term instanceof Ref) {
-      check_stratification(term.term, vars, level);
-    }
-  }
 
   function build_net(term, net, var_ptrs, level) {
     if (term instanceof Lam) {
@@ -98,44 +44,36 @@ function compile(term, unsafe) {
       if (!net.enter_port(ptr) || net.enter_port(ptr).equal(ptr)) {
         return ptr;
       } else {
-        var dup_addr = net.alloc_node((unsafe ? ptr.addr : level_of[ptr.to_string()]) + 2);
+        var dup_addr = net.alloc_node(level_of[ptr.to_string()] + 2);
         net.link_ports(new Pointer(dup_addr, 0), ptr);
         net.link_ports(new Pointer(dup_addr, 1), dups_ptr);
         return new Pointer(dup_addr, 2);
       }
     }
 
-    else if (term instanceof New) {
-      return build_net(term.val0, net, var_ptrs, level);
-    }
-
-    else if (term instanceof Fst) {
-      return build_net(term.term, net, var_ptrs, level);
-    }
-
-    else if (term instanceof Snd) {
-      return build_net(term.term, net, var_ptrs, level);
-    }
-    
     else if (term instanceof Put) {
       return build_net(term.term, net, var_ptrs, level + 1);
     }
 
-    else if (term instanceof Rwt) {
+    else if (term instanceof New) {
       return build_net(term.term, net, var_ptrs, level);
     }
 
-    else if (term instanceof Rfl) {
-      return build_net(term.eras, net, var_ptrs, level);
+    else if (term instanceof Use) {
+      return build_net(term.term, net, var_ptrs, level);
     }
-    
-    else if (term instanceof Dup) {
-      var term_ptr = build_net(term.term, net, var_ptrs, level);
-      level_of[term_ptr.to_string()] = level;
-      var_ptrs.push(term_ptr);
+
+    else if (term instanceof Cpy) {
+      var copy_ptr = build_net(term.copy, net, var_ptrs, level);
+      level_of[copy_ptr.to_string()] = level;
+      var_ptrs.push(copy_ptr);
       var body_ptr = build_net(term.body, net, var_ptrs, level);
       var_ptrs.pop();
       return body_ptr;
+    }
+
+    else if (term instanceof Let) {
+      return build_net(new Context().subst(term.body, term.term), net, var_ptrs, level);
     }
 
     else if (term instanceof Ref) {
@@ -143,14 +81,10 @@ function compile(term, unsafe) {
     }
 
     else {
-      throw "Unsupported compilation of: " + term.to_string();
+      return build_net(new Lam("", null, null, new Var(0)), net, var_ptrs, level);
     }
   }
 
-  if (!unsafe) {
-    check_stratification(term, [], 0);
-  }
-  
   var net = new Net();
   var root_addr = net.alloc_node(0);
   var term_ptr = build_net(term, net, [], 0);

@@ -25,6 +25,26 @@ var example = `
     [void.  : (Unit. void)]
     void.
 
+  -- Simple boolean
+
+  def CBool
+    {CBool : Type}
+    {ctrue : CBool}
+    {cfals : CBool}
+    CBool
+
+  def ctrue
+    [CBool : Type]
+    [ctrue : CBool]
+    [cfals : CBool]
+    ctrue
+
+  def cfals
+    [CBool : Type]
+    [ctrue : CBool]
+    [cfals : CBool]
+    cfals
+
   -- Boolean
 
   def Bool @ self :
@@ -59,27 +79,31 @@ var example = `
 
   def Nat @ self :
     {-Nat. : {self : Nat} Type}
-    {succ. : {-pred : Nat} {&pred : (Nat. pred)} (Nat. (succ pred))}
-    {zero. : (Nat. zero)}
-    (Nat. self)
+    {succ. : ! {-pred : Nat} {pred. : (Nat. pred)} (Nat. (succ pred))}
+    {zero. : ! (Nat. zero)}
+    ! (Nat. self)
 
   def succ [pred : Nat] : Nat =
     [-Nat. : {self : Nat} Type]
-    [succ. : {-pred : Nat} {&pred : (Nat. pred)} (Nat. (succ pred))]
-    [zero. : (Nat. zero)]
-    (succ. -pred (~pred -Nat. succ. zero.))
+    [succ. : ! {-pred : Nat} {pred. : (Nat. pred)} (Nat. (succ pred))]
+    [zero. : ! (Nat. zero)]
+    [zero. = zero.]
+    [succ. = succ.]
+    [pred. = (~pred -Nat. |succ. |zero.)]
+    | (succ. -pred pred.)
 
   def zero : Nat =
     [-Nat. : {self : Nat} Type]
-    [succ. : {-pred : Nat} {&pred : (Nat. pred)} (Nat. (succ pred))]
-    [zero. : (Nat. zero)]
-    zero.
+    [succ. : ! {-pred : Nat} {pred. : (Nat. pred)} (Nat. (succ pred))]
+    [zero. : ! (Nat. zero)]
+    [zero. = zero.]
+    | zero.
 
   def nat_induction
     [self  : Nat]
     [-Nat. : {self : Nat} Type]
-    [succ. : {-pred : Nat} {&pred : (Nat. pred)} (Nat. (succ pred))]
-    [zero. : (Nat. zero)]
+    [succ. : ! {-pred : Nat} {&pred : (Nat. pred)} (Nat. (succ pred))]
+    [zero. : ! (Nat. zero)]
     (~self -Nat. succ. zero.)
 
   def 0 zero
@@ -88,14 +112,37 @@ var example = `
   def 3 (succ 2)
   def 4 (succ 3)
 
-  def add [a : Nat]
-    let motive [self : Nat]
-      {b : Nat} Nat
-    let case_succ [-pred : Nat] [&pred : {b : Nat} Nat]
-      [b : Nat] (succ (&pred b))
-    let case_zero
-      [b : Nat] b
-    (~a -motive case_succ case_zero)
+  def nat_id [a : Nat]
+    (~a -[x:Nat]Nat |[-p:Nat]succ |zero)
+
+  def add [a : Nat] [b : !Nat]
+    let motive    [self : Nat] {b : Nat} Nat
+    let case_succ [-pred : Nat] [&pred : {b : Nat} Nat] [b : Nat] (succ (&pred b))
+    let case_zero [b : Nat] b
+    [add_a = (~a -motive |case_succ |case_zero)]
+    [b_cpy = b]
+    | (add_a b_cpy)
+
+  -- The functions above do not fuse because they don't share λ-headers
+  -- We'd need something like that instead:
+
+  def id_fuse [a : Nat] : Nat =
+    [-Nat. : {self : Nat} Type]
+    [succ. : ! {-pred : Nat} {pred. : (Nat. pred)} (Nat. (succ pred))]
+    [zero. : ! (Nat. zero)]
+    [succ. = succ.]
+    [zero. = zero.]
+    (~a -Nat.
+      |[-pred:Nat][pred.:(Nat. pred)](succ. -pred pred.)
+      |zero.)
+
+  -- But I'm not sure if that's possible.
+
+  (add 2 |2)
+
+  ----------
+  -- TODO --
+  ----------
 
   def mul [a : Nat] [b : Nat]
     let motive [self : Nat]
@@ -105,6 +152,18 @@ var example = `
     let case_zero
       zero
     (~a -motive case_succ case_zero)
+
+  -- Pair
+
+  def Pair [-A : Type] [-B : Type] @ self :
+    {-Pair. : {self : (Pair -A -B)} Type}
+    {pair.  : {a : A} {b : B} (Pair. (pair -A -B a b))}
+    (Pair. self)
+
+  def pair [-A : Type] [-B : Type] [a : A] [b : B] : (Pair -A -B) =
+    [-Pair. : {self : (Pair -A -B)} Type]
+    [pair.  : {a : A} {b : B} (Pair. (pair -A -B a b))]
+    (pair. a b)
 
   -- Equality
 
@@ -117,6 +176,8 @@ var example = `
     [-Eq.  : {b : A} {self : (Eq -A a b)} Type]
     [refl. : (Eq. a (refl -A -a))]
     refl.
+
+  -- The J Axiom
 
   def symm [-A : Type] [-a : A] [-b : A] [e : (Eq -A a b)]
     (~e -[b : A] [self : (Eq -A a b)] (Eq -A b a) (refl -A -a))
@@ -167,10 +228,7 @@ var example = `
       (subs -Nat -(add m n) -(add n m) a -[x : Nat](Eq -Nat (succ x) (add m (succ n))) c)
     (~n -motive case_succ case_zero)
 
-  def Eq_true_fals_implies_Empty [e : (Eq -Bool true fals)]
-    (~e -[b : Bool] [self:(Eq -Bool true b)] (~b -[x:Bool]Type Unit Empty) void)
-
-  (the -{e : (Eq -Bool true fals)}Empty Eq_true_fals_implies_Empty)
+  add_comm
 `;
 
 var term = formality.parse(example);
@@ -187,7 +245,7 @@ console.log("Norm (compact):\n" + term.head(true).norm(false).to_string(true) + 
 
 console.log("Norm (full):\n" + term.norm(true).to_string(true) + "\n");
 
-//console.log(":::::: Compiling to net :::::::\n");
-//console.log("Term:\n" + compiler.decompile(compiler.compile(term, true)).to_string() + "\n");
-//console.log("Norm:\n" + compiler.decompile(compiler.compile(term, true).reduce()[0]).to_string() + "\n");
-//console.log("Rwts:\n" + compiler.compile(term, true).reduce()[1] + "\n");
+console.log(":::::: Compiling to net :::::::\n");
+console.log("Term:\n" + compiler.decompile(compiler.compile(term, false)).to_string() + "\n");
+console.log("Norm:\n" + compiler.decompile(compiler.compile(term, false).reduce()[0]).to_string() + "\n");
+console.log("Rwts:\n" + compiler.compile(term, false).reduce()[1] + "\n");
