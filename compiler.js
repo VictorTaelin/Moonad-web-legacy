@@ -123,7 +123,7 @@ function decompile(net) {
     else {
       if (ptr.port === 0) {
         var exit = dup_exit.pop();
-        var term = build_term(net, net.enter_port(new Pointer(ptr.addr, dup_exit.head)), var_ptrs, dup_exit);
+        var term = build_term(net, net.enter_port(new Pointer(ptr.addr, exit)), var_ptrs, dup_exit);
         dup_exit.push(exit);
         return term;
       } else {

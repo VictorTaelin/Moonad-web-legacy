@@ -2,64 +2,41 @@ var formality = require("./formality.js");
 var compiler = require("./compiler.js");
 
 var example = `
-  def the 
-    [-T : Type]
-    [x  : T]
-    x
+  def the [-T : Type] [x  : T] x
 
   -- Empty type
 
-  def Empty @ self :
+  def Empty : Type = @self
     {-Empty. : {self : Empty} Type}
     (Empty. self)
 
   -- Unit type
 
-  def Unit @ self :
+  def Unit : Type = @self
     {-Unit. : {self : Unit} Type}
-    {void.  : (Unit. void)}
+    {unit.  : (Unit. unit)}
     (Unit. self)
 
-  def void : Unit =
+  def unit : Unit = $Unit
     [-Unit. : {self : Unit} Type]
-    [void.  : (Unit. void)]
-    void.
-
-  -- Simple boolean
-
-  def CBool
-    {CBool : Type}
-    {ctrue : CBool}
-    {cfals : CBool}
-    CBool
-
-  def ctrue
-    [CBool : Type]
-    [ctrue : CBool]
-    [cfals : CBool]
-    ctrue
-
-  def cfals
-    [CBool : Type]
-    [ctrue : CBool]
-    [cfals : CBool]
-    cfals
+    [unit.  : (Unit. unit)]
+    unit.
 
   -- Boolean
 
-  def Bool @ self :
+  def Bool : Type = @self
     {-Bool. : {self : Bool} Type}
     {true.  : (Bool. true)}
     {fals.  : (Bool. fals)}
     (Bool. self)
 
-  def true : Bool =
+  def true : Bool = $Bool
     [-Bool. : {self : Bool} Type]
     [true.  : (Bool. true)]
     [fals.  : (Bool. fals)]
     true.
 
-  def fals : Bool =
+  def fals : Bool = $Bool
     [-Bool. : {self : Bool} Type]
     [true.  : (Bool. true)]
     [fals.  : (Bool. fals)]
@@ -72,30 +49,34 @@ var example = `
     [fals.  : (Bool. fals)]
     (~self -Bool. true. fals.)
 
-  def not [b : Bool]
-    (~b -([self : Bool] Bool) fals true)
+  def not [b : Bool] : Bool = $Bool
+    [-Bool. : {self : Bool} Type]
+    [true.  : (Bool. true)]
+    [fals.  : (Bool. fals)]
+    (~b -[self : Bool](Bool. (not self)) fals. true.)
 
   -- Natural numbers
 
-  def Nat @ self :
+  def Nat : Type = @self
     {-Nat. : {self : Nat} Type}
     {succ. : ! {-pred : Nat} {pred. : (Nat. pred)} (Nat. (succ pred))}
     {zero. : ! (Nat. zero)}
     ! (Nat. self)
 
-  def succ [pred : Nat] : Nat =
+  def succ [pred : Nat] : Nat = $Nat
     [-Nat. : {self : Nat} Type]
     [succ. : ! {-pred : Nat} {pred. : (Nat. pred)} (Nat. (succ pred))]
     [zero. : ! (Nat. zero)]
-    [zero. = zero.]
     [succ. = succ.]
+    [zero. = zero.]
     [pred. = (~pred -Nat. |succ. |zero.)]
     | (succ. -pred pred.)
 
-  def zero : Nat =
+  def zero : Nat = $Nat
     [-Nat. : {self : Nat} Type]
     [succ. : ! {-pred : Nat} {pred. : (Nat. pred)} (Nat. (succ pred))]
     [zero. : ! (Nat. zero)]
+    [succ. = succ.]
     [zero. = zero.]
     | zero.
 
@@ -112,37 +93,37 @@ var example = `
   def 3 (succ 2)
   def 4 (succ 3)
 
-  def nat_id [a : Nat]
-    (~a -[x:Nat]Nat |[-p:Nat]succ |zero)
-
-  def add [a : Nat] [b : !Nat]
-    let motive    [self : Nat] {b : Nat} Nat
-    let case_succ [-pred : Nat] [&pred : {b : Nat} Nat] [b : Nat] (succ (&pred b))
-    let case_zero [b : Nat] b
-    [add_a = (~a -motive |case_succ |case_zero)]
-    [b_cpy = b]
-    | (add_a b_cpy)
-
-  -- The functions above do not fuse because they don't share λ-headers
-  -- We'd need something like that instead:
-
-  def id_fuse [a : Nat] : Nat =
+  def nat_id [self : Nat] : Nat = $Nat
     [-Nat. : {self : Nat} Type]
     [succ. : ! {-pred : Nat} {pred. : (Nat. pred)} (Nat. (succ pred))]
     [zero. : ! (Nat. zero)]
     [succ. = succ.]
     [zero. = zero.]
-    (~a -Nat.
-      |[-pred:Nat][pred.:(Nat. pred)](succ. -pred pred.)
-      |zero.)
+    (~self -[x:Nat](Nat. (nat_id x))
+    | [-pred : Nat]
+      [pred. : (Nat. (nat_id pred))]
+      (succ. -(nat_id pred) pred.)
+    | zero.)
 
-  -- But I'm not sure if that's possible.
+  def add [a : Nat] [b : Nat] : Nat = $Nat
+    [-Nat. : {self : Nat} Type]
+    [succ. : ! {-pred : Nat} {pred. : (Nat. pred)} (Nat. (succ pred))]
+    [zero. : ! (Nat. zero)]
+    [succ. = succ.]
+    [zero. = zero.]
+    (~a -[x : Nat] (Nat. (add x b))
+      | [-pred : Nat] [pred. : (Nat. (add pred b))] (succ. -(add pred b) pred.)
+      (~b -[x:Nat](Nat. (nat_id x))
+        | [-pred : Nat] [pred. : (Nat. (nat_id pred))] (succ. -(nat_id pred) pred.)
+        | zero.))
 
-  (add 2 |2)
+  add
 
   ----------
   -- TODO --
   ----------
+
+  def add ...
 
   def mul [a : Nat] [b : Nat]
     let motive [self : Nat]
@@ -238,7 +219,9 @@ console.log("Term:\n" + term.to_string() + "\n");
 try {
   console.log("Type:\n" + term.check().norm(false).to_string() + "\n");
 } catch (e) {
-  console.log("Type:\n" + e + "\n");
+  console.log("Type:");
+  console.log(e);
+  console.log("");
 }
 
 console.log("Norm (compact):\n" + term.head(true).norm(false).to_string(true) + "\n");

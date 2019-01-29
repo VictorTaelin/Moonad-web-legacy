@@ -101,6 +101,7 @@ class Context {
     } catch (e) {
       var checks = false;
       var unsure = true;
+      console.log(e);
     }
     if (!checks) {
       throw this.show_mismatch(expect, actual, value) + (unsure ? "(Couldn't decide if terms are equal.)" : "");
@@ -247,6 +248,11 @@ class All {
   }
 
   check(context = new Context()) {
+    var bind_t = this.bind.check(context);
+    var body_t = this.body.check(context.extend([this.name, this.bind.shift(0, 1), new Var(0)]));
+    if (!equals(bind_t, new Typ()) || !equals(body_t, new Typ())) {
+      throw "[ERROR]\nForall not a type: `" + this.to_string(true, context) + "`. Context:\n" + context.show();
+    }
     return new Typ();
   }
 }
@@ -322,7 +328,9 @@ class Lam {
       var name = this.name;
       var bind = this.bind;
       var body = this.body.check(context.extend([name, bind.shift(0, 1), new Var(0)]));
-      return new All(eras, name, bind, body);
+      var type = new All(eras, name, bind, body);
+      type.check(context);
+      return type;
     }
   }
 }
@@ -432,15 +440,15 @@ class Put {
   }
 
   head(dref) {
-    return this;
+    return this.term.head(dref);
   }
 
   norm(dref, context = new Context()) {
-    return new Put(this.term.norm(dref, context));
+    return this.term.norm(dref, context);
   }
 
-  check(context = new Context()) {
-    return new Box(this.term.check(context));
+  check(context = new Context(), loop = []) {
+    return new Box(this.term.check(context, loop));
   }
 }
 
@@ -478,8 +486,8 @@ class Box {
     return new Box(this.term.norm(dref, context));
   }
 
-  check(context = new Context()) {
-    var term_t = this.term.check(context);
+  check(context = new Context(), loop = []) {
+    var term_t = this.term.check(context, loop);
     if (!context.equals(term_t, new Typ())) {
       throw "Boxed term not a type:" + this.to_string(context) + "\n- Context:\n" + context.show();
     }
@@ -525,27 +533,23 @@ class Cpy {
   }
 
   head(dref) {
-    var copy = this.copy.head(dref);
-    if (copy instanceof Put) {
-      return new Context().subst(this.body, copy.term).head(dref);
-    } else {
-      return this;
-    }
+    return new Context().subst(this.body, this.copy).head(dref);
   }
 
   norm(dref, context = new Context()) {
-    var copy = this.copy.norm(dref, context);
-    if (copy instanceof Put) {
-      return context.subst(this.body, copy.term).norm(dref, context);
-    } else {
-      var name = this.name;
-      var body = this.body.norm(dref, context);
-      return new Cpy(name, copy, body);
-    }
+    return context.subst(this.body, this.copy).norm(dref, context);
+    //var copy = this.copy.norm(dref, context);
+    //if (copy instanceof Put) {
+      //return context.subst(this.body, copy.term).norm(dref, context);
+    //} else {
+      //var name = this.name;
+      //var body = this.body.norm(dref, context);
+      //return new Cpy(name, copy, body);
+    //}
   }
 
-  check(context = new Context()) {
-    var copy_t = this.copy.check(context);
+  check(context = new Context(), loop = []) {
+    var copy_t = this.copy.check(context, loop);
     if (!(copy_t instanceof Box)) {
       throw "Copy of unboxed value: `" + this.copy.to_string(context) + "`.";
     } else if (!this.body.stratified(0, -1)) {
@@ -553,7 +557,7 @@ class Cpy {
           + "\nUses of variable '" + this.name + "' must have exactly 1 enclosing box.";
     } else {
       var body_c = context.extend([this.name, copy_t.term.shift(0, 1), this.copy.shift(0, 1)]);
-      return context.subst(this.body.check(body_c), this.copy);
+      return context.subst(this.body.check(body_c, loop), this.copy);
     }
   }
 }
@@ -566,7 +570,7 @@ class Slf {
   }
 
   to_string(erased = false, context = new Context()) {
-    return "@ " + this.name + " : " + this.body.to_string(erased, context.extend([this.name, null, null]));
+    return "@" + this.name + " " + this.body.to_string(erased, context.extend([this.name, null, null]));
   }
 
   shift(depth, inc) {
@@ -594,7 +598,8 @@ class Slf {
   }
 
   check(context = new Context()) {
-    return this.body.check(context.extend([this.name, this.shift(0, 1), new Var(0)]));
+    var body_c = context.extend([this.name, this.shift(0, 1), new Var(0)]);
+    return this.body.check(body_c);
   }
 }
 
@@ -609,7 +614,7 @@ class New {
     if (erased) {
       return this.term.to_string(erased, context);
     } else {
-      return ": " + this.type.to_string(erased, context) + " = " + this.term.to_string(erased, context);
+      return "$" + this.type.to_string(erased, context) + " " + this.term.to_string(erased, context);
     }
   }
 
@@ -745,10 +750,10 @@ class Let {
 
 // A reference to a closed term. Used to preserve names and cache types.
 class Ref {
-  constructor(name, term) {
+  constructor(name, term, type) {
     this.name = name; // String
     this.term = term; // Term
-    this.type = null; // Maybe Term
+    this.type = type; // Maybe Term
   }
 
   to_string(erased = false, context = new Context()) {
@@ -780,8 +785,60 @@ class Ref {
   }
 
   check(context = new Context()) {
-    this.type = this.type || this.term.check(context);
+    if (!this.type) {
+      this.type = this.term.check(context);
+    }
     return this.type;
+  }
+}
+
+// A type annotation.
+class Ann {
+  constructor(type, term) {
+    this.type = type; // Term
+    this.term = term; // Term
+    this.loop = false;
+  }
+
+  to_string(erased = false, context = new Context()) {
+    return (erased ? ": " + this.type.to_string(context) + " = " : "") + this.term.to_string(context);
+  }
+
+  shift(depth, inc) {
+    return new Ann(this.term.shift(depth, inc), this.type.shift(depth, inc));
+  }
+
+  uses(depth) {
+    return this.term.uses(depth);
+  }
+
+  stratified(depth, level) {
+    return this.term.stratified(depth, level);
+  }
+
+  subst(context = new Context()) {
+    return this.term.subst(context);
+  }
+
+  head(dref) {
+    return this.term.head(dref);
+  }
+
+  norm(dref, context = new Context()) {
+    return this.term.norm(dref, context);
+  }
+
+  check(context = new Context()) {
+    if (this.loop && this.term.norm(true, context)) {
+      return this.type;
+    } else {
+      this.loop = true;
+      var type = this.term.check(context);
+      if (!equals(this.type, type)) {
+        throw context.show_mismatch(this.type, type, () => "annotated value: `" + this.term.to_string(context) + "`");
+      }
+      return this.type;
+    }
   }
 }
 
@@ -829,59 +886,59 @@ class Nil {
 }
 
 // Checks if two terms are equal.
-function equals(a, b) {
+function equals(a, b, soft = false) {
   // Checks if both terms are already identical
   var a = a.head(false);
   var b = b.head(false);
   if ( a instanceof Ref && b instanceof Ref && a.name === b.name
-    || a instanceof App && b instanceof App && equals(a.func, b.func) && equals(a.argm, b.argm)
-    || a instanceof Cpy && b instanceof Cpy && equals(a.copy, b.copy) && equals(a.body, b.body)) {
+    || a instanceof App && b instanceof App && equals(a.func, b.func, true) && equals(a.argm, b.argm, true)
+    || a instanceof Cpy && b instanceof Cpy && equals(a.copy, b.copy, true) && equals(a.body, b.body, true)) {
     return true;
   }
   // Otherwise, reduces to weak head normal form are equal and recurse
   var a = a.head(true);
   var b = b.head(true);
   if (a instanceof App && a.eras) {
-    return equals(a.func, b);
+    return equals(a.func, b, soft);
   }
   if (a instanceof Lam && a.eras) {
-    return equals(a.body, b);
+    return equals(a.body, b, soft);
   }
   if (b instanceof App && b.eras) {
-    return equals(a, b.func);
+    return equals(a, b.func, soft);
   }
   if (b instanceof Lam && b.eras) {
-    return equals(a, b.body);
+    return equals(a, b.body, soft);
   }
   if (a instanceof Typ && b instanceof Typ) {
     return true;
   } else if (a instanceof All && b instanceof All) {
     var eras = a.eras === b.eras;
-    var bind = equals(a.bind, b.bind);
-    var body = equals(a.body, b.body);
+    var bind = equals(a.bind, b.bind, soft);
+    var body = equals(a.body, b.body, soft);
     return eras && bind && body;
   } else if (a instanceof Lam && b instanceof Lam) {
-    var body = equals(a.body, b.body);
+    var body = equals(a.body, b.body, soft);
     return body;
   } else if (a instanceof App && b instanceof App) {
-    var func = equals(a.func, b.func);
-    var argm = equals(a.argm, b.argm);
+    var func = equals(a.func, b.func, soft);
+    var argm = equals(a.argm, b.argm, soft);
     return func && argm;
   } else if (a instanceof Var && b instanceof Var) {
-    return a.index == b.index;
+    return a.index === b.index;
   } else if (a instanceof Slf && b instanceof Slf) {
-    var body = equals(a.body, b.body);
+    var body = equals(a.body, b.body, soft);
     return body;
   } else if (a instanceof Put && b instanceof Put) {
-    var term = equals(a.term, b.term);
+    var term = equals(a.term, b.term, soft);
     return term;
   } else if (a instanceof Box && b instanceof Box) {
-    var term = equals(a.term, b.term);
+    var term = equals(a.term, b.term, soft);
     return term;
   } else if (a instanceof Cpy && b instanceof Cpy) {
-    var copy = equals(a.copy, b.copy);
-    var body = equals(a.body, b.body);
-    return term && body;
+    var copy = equals(a.copy, b.copy, soft);
+    var body = equals(a.body, b.body, soft);
+    return copy && body;
   }
   return false;
 }
@@ -994,15 +1051,13 @@ function parse(code) {
     // Slf
     else if (match("@")) {
       var name = parse_name(context);
-      var skip = parse_exact(":");
       var body = parse_term(context.extend([name, null, new Var(0)]));
       return new Slf(name, body);
     }
 
     // New
-    else if (match(":")) {
+    else if (match("$")) {
       var type = parse_term(context);
-      var skip = parse_exact("=");
       var term = parse_term(context);
       return new New(type, term);
     }
@@ -1029,7 +1084,7 @@ function parse(code) {
     else if (match("def")) {
       var name = parse_name();
       var term = parse_term(context);
-      var tref = new Ref(name, term, true)
+      var tref = new Ref(name, term, type)
       var body = parse_term(context.extend([name, null, tref.shift(0, 1)]));
       for (var i = 0; i < (unbound_refs[name] || []).length; ++i) {
         unbound_refs[name][i].term = tref;
@@ -1044,6 +1099,14 @@ function parse(code) {
       var term = parse_term(context);
       var body = parse_term(context.extend([name, null, new Var(0)]));
       return new Let(name, term, body);
+    }
+
+    // Annotation
+    else if (match(":")) {
+      var type = parse_term(context);
+      var skip = parse_exact("=");
+      var term = parse_term(context);
+      return new Ann(type, term);
     }
 
     // Hole
@@ -1082,4 +1145,4 @@ function parse(code) {
   return term;
 }
 
-module.exports = {Context, Var, Typ, All, Lam, App, Put, Box, Cpy, Slf, New, Use, Let, Ref, Nil, equals, parse};
+module.exports = {Context, Var, Typ, All, Lam, App, Put, Box, Cpy, Slf, New, Use, Let, Ref, Ann, Nil, equals, parse};
