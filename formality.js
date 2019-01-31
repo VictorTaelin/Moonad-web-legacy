@@ -347,11 +347,8 @@ class Lam {
       throw "[ERROR]\nNon-stratified function on: `" + this.to_string(context) + "`."
           + "\nUses of variable '" + this.name + "' can't have enclosing boxes.";
     } else {
-      var eras = this.eras;
-      var name = this.name;
-      var bind = this.bind;
-      var body = this.body.check(context.extend([name, bind.shift(0, 1), new Var(0)]), eras);
-      var type = new All(eras, name, bind, body);
+      var body = this.body.check(context.extend([this.name, this.bind.shift(0, 1), new Var(0)]), eras);
+      var type = new All(this.eras, this.name, this.bind, body);
       type.check(context, true);
       return type;
     }

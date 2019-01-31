@@ -122,16 +122,6 @@ var example = `
     [refl. : (Eq. a (refl -A -a))]
     refl.
 
-  def Eq [-A : Type] [a : A] [b : A] : Type = @self
-    {-Eq.  : {b : A} {self : (Eq -A a b)} Type}
-    {refl. : (Eq. a (refl -A -a))}
-    (Eq. b self)
-
-  def refl [-A : Type] [-a : A] : (Eq -A a a) = $(Eq -A a a)
-    [-Eq.  : {b : A} {self : (Eq -A a b)} Type]
-    [refl. : (Eq. a (refl -A -a))]
-    refl.
-
   def symm [-A : Type] [-a : A] [-b : A] [e : (Eq -A a b)]
     (~e -[b : A] [self : (Eq -A a b)] (Eq -A b a) (refl -A -a))
 
