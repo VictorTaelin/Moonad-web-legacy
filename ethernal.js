@@ -82,6 +82,16 @@ class Blockchain {
         this.blocks[block.hash()] = block;
     };
 
+    block_pow(block_hash) {
+        //TODO: implement a better way to measure block Proof of Work
+        block_height(block_hash); // Placeholder
+    }
+
+    block_acc_pow(block_hash) {
+        //TODO: implement a better way to measure block accumulated Proof of Work
+        block_height(block_hash); // Placeholder
+    }
+
     block_height(block_hash) {
         if (block_hash == empty_hash) {
             return 0;
@@ -101,8 +111,11 @@ class Blockchain {
     get_tip() {
         var tip = empty_hash;
 
+        // TODO: Change this loop to avoid looking at child blocks
+        // otherwise,this function will do lots of unnecessary work
+        // Idea: Maintain a vector with the hashes of "leaf" blocks
         for (var block_hash in this.blocks) {
-            if (this.block_height(block_hash) > this.block_height(tip)) {
+            if (this.block_acc_pow(block_hash) > this.block_acc_pow(tip)) {
                 tip = block_hash;
             }
         }
