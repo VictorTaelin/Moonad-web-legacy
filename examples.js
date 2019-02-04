@@ -1,53 +1,192 @@
 var formality = require("./formality.js");
 
-var example = `
-the
-: {A : Type} {u : A} A
-= [A : Type] [u : A] u
+var example = () => `
+  _
+  : (Type Type) 
+  = (Type Type)
 
-Bool
-: {self : (Bool self)} Type
-= [self : (Bool self)]
-  {-Bool. : {self : (Bool self)} Type}
-  {true.  : (Bool. true)}
-  {fals.  : (Bool. fals)}
-  (Bool. self)
+  the
+  : {A : Type} {u : A} A
+  = [A] [u] u
 
-true
-: (Bool true)
-= [-Bool. : {self : (Bool self)} Type]
-  [true.  : (Bool. true)]
-  [fals.  : (Bool. fals)]
-  true.
+  -- The empty, uninhabited type
 
-fals
-: (Bool fals)
-= [-Bool. : {self : (Bool self)} Type]
-  [true.  : (Bool. true)]
-  [fals.  : (Bool. fals)]
-  fals.
+  Empty
+  : {self : (Empty self)} Type
+  = [self]
+    {-Prop : {self : (Empty self)} Type}
+    (Prop self)
 
-bool_induction
-: {self  : (Bool self)}
-  {-Bool. : {self : (Bool self)} Type}
-  {true.  : (Bool. true)}
-  {fals.  : (Bool. fals)}
-  (Bool. self)
-= [self  : (Bool self)]
-  [-Bool. : {self : (Bool self)} Type]
-  [true.  : (Bool. true)]
-  [fals.  : (Bool. fals)]
-  (self -Bool. true. fals.)
+  -- The unit type
 
-not
-: {self : (Bool self)} (Bool (not self))
-= [self : (Bool self)] (self -[self : (Bool self)] (Bool (not self)) fals true)
+  Unit
+  : {self : (Unit self)} Type
+  = [self]
+    {-Prop : {self : (Unit self)} Type}
+    {new   : (Prop Unit.new)}
+    (Prop self)
 
-main
-= (not true)
+  Unit.new
+  : (Unit Unit.new)
+  = [-Prop] [new] new
+
+  -- The booleans true and false
+
+  Bool
+  : {self  : (Bool self)} Type
+  = [self]
+    {-Prop : {self : (Bool self)} Type}
+    {true  : (Prop Bool.true)}
+    {false : (Prop Bool.false)}
+    (Prop self)
+
+  Bool.true
+  : (Bool Bool.true)
+  = [-Prop] [true] [false] true
+
+  Bool.false
+  : (Bool Bool.false)
+  = [-Prop] [true] [false] false
+
+  Bool.induct
+  : {self  : (Bool self)}
+    {-Prop : {self : (Bool self)} Type}
+    {true  : (Prop Bool.true)}
+    {false : (Prop Bool.false)}
+    (Prop self)
+  = [self] [-Prop] [true] [false]
+    (self -Prop true false)
+
+  Bool.not
+  : {self : (Bool self)} (Bool (Bool.not self))
+  = [self]
+    (self
+      -[self](Bool (Bool.not self))
+      Bool.false
+      Bool.true)
+
+  -- Natural numbers
+
+  Nat
+  : {self : (Nat self)} Type
+  = [self]
+    {-Prop : {self : (Nat self)} Type}
+    {succ  : {-pred : (Nat pred)} {~pred : (Prop pred)} (Prop (Nat.succ pred))}
+    {zero  : (Prop Nat.zero)}
+    (Prop self)
+
+  Nat.succ
+  : {pred : (Nat pred)} (Nat (Nat.succ pred))
+  = [pred] [-Nat.] [succ.] [zero.]
+    (succ. -pred (pred -Nat. succ. zero.))
+
+  Nat.zero
+  : (Nat Nat.zero)
+  = [-Nat.] [succ.] [zero.] zero.
+
+  Nat.0 : (Nat Nat.0) = Nat.zero
+  Nat.1 : (Nat Nat.1) = (Nat.succ Nat.0)
+  Nat.2 : (Nat Nat.2) = (Nat.succ Nat.1)
+  Nat.3 : (Nat Nat.3) = (Nat.succ Nat.2)
+  Nat.4 : (Nat Nat.4) = (Nat.succ Nat.3)
+  Nat.5 : (Nat Nat.5) = (Nat.succ Nat.4)
+  Nat.6 : (Nat Nat.6) = (Nat.succ Nat.5)
+  Nat.7 : (Nat Nat.7) = (Nat.succ Nat.6)
+  Nat.8 : (Nat Nat.8) = (Nat.succ Nat.7)
+  Nat.9 : (Nat Nat.9) = (Nat.succ Nat.8)
+
+  Nat.induct
+  : {self  : (Nat self)}
+    {-Prop : {self : (Nat self)} Type}
+    {succ  : {-pred : (Nat pred)} {~pred : (Prop pred)} (Prop (Nat.succ pred))}
+    {zero  : (Prop Nat.zero)}
+    (Prop self)
+  = [self] [Prop] [succ] [zero]
+    (self -Prop succ zero)
+
+  Nat.id
+  : {self : (Nat self)} (Nat (Nat.id self))
+  = [self] [-Prop] [succ] [zero]
+    (self -[self] (Prop (Nat.id self))
+      [-pred : (Nat pred)] [pred. : (Prop (Nat.id pred))]
+        (succ -(Nat.id pred) pred.)
+      zero)
+
+  Nat.double
+  : {self : (Nat self)} (Nat (Nat.double self))
+  = [self] [-Prop] [succ] [zero]
+    (self -[self](Prop (Nat.double self))
+      [-pred : (Nat pred)] [~pred : (Prop (Nat.double pred))]
+        (succ -(Nat.succ (Nat.double pred)) (succ -(Nat.double pred) ~pred))
+      zero)
+
+  Nat.add
+  : {a : (Nat a)} {b : (Nat b)} (Nat (Nat.add a b))
+  = [a] [b] [-Prop] [succ] [zero]
+    (a -[pred : (Nat pred)](Prop (Nat.add pred b))
+      [-pred : (Nat pred)] [~pred : (Prop (Nat.add pred b))] (succ -(Nat.add pred b) ~pred)
+      (b -[self](Prop (Nat.id self))
+        [-pred : (Nat pred)] [~pred : (Prop (Nat.id pred))] (succ -(Nat.id pred) ~pred) 
+        zero))
+
+  -- Equality on self-referential types
+
+  Eq
+  : {-T   : {self : (T self)} Type}
+    {a    : (T a)}
+    {b    : (T b)}
+    {self : (Eq -T a b self)}
+    Type
+  = [-T] [a] [b] [self]
+    {-Prop : {b : (T b)} {self : (Eq -T a b self)} Type}
+    {refl  : (Prop a (Eq.refl -T -a))}
+    (Prop b self)
+
+  Eq.refl
+  : {-T : {self : (T self)} Type}
+    {-a : (T a)}
+    (Eq -T a a (Eq.refl -T -a))
+  = [-T] [-a] [-Prop] [refl]
+    refl
+
+  Eq.sym
+  : {-T : {self : (T self)} Type}
+    {-a : (T a)}
+    {-b : (T b)}
+    {e  : (Eq -T a b e)}
+    (Eq -T b a (Eq.sym -T -a -b e))
+  = [-T] [-a] [-b] [e]
+    (e -[b][self](Eq -T b a (Eq.sym -T -a -b self))
+      (Eq.refl -T -a))
+
+  Eq.cong
+  : {-A : {self : (A self)} Type}
+    {-B : {self : (B self)} Type}
+    {-a : (A a)}
+    {-b : (A b)}
+    {e  : (Eq -A a b e)}
+    {-f : {a : (A a)} (B (f a))}
+    (Eq -B (f a) (f b) (Eq.cong -A -B -a -b e -f))
+  = [-A] [-B] [-a] [-b] [e] [-f] 
+    (e -[b][self](Eq -B (f a) (f b) (Eq.cong -A -B -a -b self -f))
+      (Eq.refl -B -(f a)))
+
+  Eq.subst
+  : {-T : {self : (T self)} Type}
+    {-a : (T a)}
+    {-b : (T b)}
+    {e  : (Eq -T a b e)}
+    {-P : {a : (T a)} Type}
+    {x  : (P a)}
+    (P b)
+  = [-T] [-a] [-b] [e] [-P] [x]
+    (e -[b][self](P b) x)
+
+  main
+  = Eq.subst
 `;
 
-var defs = formality.parse(example);
+var defs = formality.parse(example());
 
 var term = defs.main.term;
 console.log("Term:\n" + formality.show(term) + "\n");
@@ -58,230 +197,10 @@ console.log("Norm (head):\n" + formality.show(formality.norm(formality.norm(term
 console.log("Norm (full):\n" + formality.show(formality.norm(term, defs, true)) + "\n");
 
 try {
-  console.log("Type:\n" + formality.show(formality.norm(formality.check(term, defs), {}, true)) + "\n");
+  var type = formality.infer(term, defs);
+  console.log("Type:\n" + formality.show(formality.norm(type, {}, true)) + "\n");
 } catch (e) {
   console.log("Type:");
   console.log(e);
   console.log("");
 }
-
-/*
-def Empty
-: {self : (Empty self)} Type
-= [self : (Empty self)]
-  {Empty. : {self : (Empty self)} Type}
-  (Empty. self)
-
-def Bool
-: {self : (Bool self)} Type
-= [self : (Bool self)]
-  {-Bool. : {self : (Bool self)} Type}
-  {true.  : (Bool. true)}
-  {fals.  : (Bool. fals)}
-  (Bool. self)
-
-def true
-: (Bool true)
-= [-Bool. : {self : (Bool self)} Type]
-  [true.  : (Bool. true)]
-  [fals.  : (Bool. fals)]
-  true.
-
-def fals
-: (Bool fals)
-= [-Bool. : {self : (Bool self)} Type]
-  [true.  : (Bool. true)]
-  [fals.  : (Bool. fals)]
-  fals.
-
-def bool_induction
-: {self  : (Bool self)}
-  {-Bool. : {self : (Bool self)} Type}
-  {true.  : (Bool. true)}
-  {fals.  : (Bool. fals)}
-  (Bool. self)
-= [self  : (Bool self)]
-  [-Bool. : {self : (Bool self)} Type]
-  [true.  : (Bool. true)]
-  [fals.  : (Bool. fals)]
-  (self -Bool. true. fals.)
-
-def not
-: {self : (Bool self)} (Bool (not self))
-= [self : (Bool self)] (self -[self : (Bool self)] (Bool (not self)) fals true)
-
-def main
-= not
-
-Type
-
--- TODO: continue from here
-
-def Empty
-: {self : (Empty self)} Type
-= [self : (Empty self)]
-  {-Empty. : {self : (Empty self)} Type}
-  (Empty. self)
-
-def main
-= Empty
-
--- Unit type
-
-def Unit : Type = @self
-  {-Unit. : {self : Unit} Type}
-  {unit.  : (Unit. unit)}
-  (Unit. self)
-
-def unit : Unit = $Unit
-  [-Unit. : {self : Unit} Type]
-  [unit.  : (Unit. unit)]
-  unit.
-
-unit
-
--- Boolean
-
-def Bool : Type = @self
-  {-Bool. : {self : Bool} Type}
-  {true.  : (Bool. true)}
-  {fals.  : (Bool. fals)}
-  (Bool. self)
-
-def true : Bool = $Bool
-  [-Bool. : {self : Bool} Type]
-  [true.  : (Bool. true)]
-  [fals.  : (Bool. fals)]
-  true.
-
-def fals : Bool = $Bool
-  [-Bool. : {self : Bool} Type]
-  [true.  : (Bool. true)]
-  [fals.  : (Bool. fals)]
-  fals.
-
-def not [b : Bool] : Bool = $Bool
-  [-Bool. : {self : Bool} Type]
-  [true.  : (Bool. true)]
-  [fals.  : (Bool. fals)]
-  (~b -[self : Bool](Bool. (not self)) fals. true.)
-
--- Natural numbers
-
-def Nat : Type = @self
-  {-Nat. : {self : Nat} Type}
-  {succ. : ! {-pred : Nat} {pred. : (Nat. pred)} (Nat. (succ pred))}
-  {zero. : ! (Nat. zero)}
-  ! (Nat. self)
-
-def succ [pred : Nat] : Nat = $Nat
-  [-Nat. : {self : Nat} Type]
-  [succ. : ! {-pred : Nat} {pred. : (Nat. pred)} (Nat. (succ pred))]
-  [zero. : ! (Nat. zero)]
-  [succ. = succ.]
-  [zero. = zero.]
-  [pred. = (~pred -Nat. |succ. |zero.)]
-  | (succ. -pred pred.)
-
-def zero : Nat = $Nat
-  [-Nat. : {self : Nat} Type]
-  [succ. : ! {-pred : Nat} {pred. : (Nat. pred)} (Nat. (succ pred))]
-  [zero. : ! (Nat. zero)]
-  [succ. = succ.]
-  [zero. = zero.]
-  | zero.
-
-def nat_induction
-  [self  : Nat]
-  [-Nat. : {self : Nat} Type]
-  [succ. : ! {-pred : Nat} {&pred : (Nat. pred)} (Nat. (succ pred))]
-  [zero. : ! (Nat. zero)]
-  (~self -Nat. succ. zero.)
-
-def 0 zero
-def 1 (succ 0)
-def 2 (succ 1)
-def 3 (succ 2)
-def 4 (succ 3)
-
-def nat_id [self : Nat] : Nat = $Nat
-  [-Nat. : {self : Nat} Type]
-  [succ. : ! {-pred : Nat} {pred. : (Nat. pred)} (Nat. (succ pred))]
-  [zero. : ! (Nat. zero)]
-  [succ. = succ.]
-  [zero. = zero.]
-  (~self -[x:Nat](Nat. (nat_id x))
-  | [-pred : Nat]
-    [pred. : (Nat. (nat_id pred))]
-    (succ. -(nat_id pred) pred.)
-  | zero.)
-
-def add [a : Nat] [b : Nat] : Nat = $Nat
-  [-Nat. : {self : Nat} Type]
-  [succ. : ! {-pred : Nat} {pred. : (Nat. pred)} (Nat. (succ pred))]
-  [zero. : ! (Nat. zero)]
-  [succ. = succ.]
-  [zero. = zero.]
-  (~a -[pred : Nat] (Nat. (add pred b))
-    | [-pred : Nat] [pred. : (Nat. (add pred b))] (succ. -(add pred b) pred.)
-    (~b -[b : Nat] (Nat. (nat_id b))
-      | [-b : Nat] [b. : (Nat. (nat_id b))] (succ. -(nat_id b) b.)
-      | zero.))
-
--- Equality
-
-def Eq [-A : Type] [a : A] [b : A] : Type = @self
-  {-Eq.  : {b : A} {self : (Eq -A a b)} Type}
-  {refl. : (Eq. a (refl -A -a))}
-  (Eq. b self)
-
-def refl [-A : Type] [-a : A] : (Eq -A a a) = $(Eq -A a a)
-  [-Eq.  : {b : A} {self : (Eq -A a b)} Type]
-  [refl. : (Eq. a (refl -A -a))]
-  refl.
-
-def symm [-A : Type] [-a : A] [-b : A] [e : (Eq -A a b)]
-  (~e -[b : A] [self : (Eq -A a b)] (Eq -A b a) (refl -A -a))
-
-def cong [-A : Type] [-B : Type] [-a : A] [-b : A] [e : (Eq -A a b)]
-  (~e -[b : A] [self : (Eq -A a b)] {-f : {x : A} B} (Eq -B (f a) (f b))
-        [-f : {x : A} B] (refl -B -(f a)))
-
-def subs [-A : Type] [-a : A] [-b : A] [e : (Eq -A a b)]
-  (~e -[b : A] [self : (Eq -A a b)] {-P : {x : A} Type} {x : (P a)} (P b) 
-        [-P : {x : A} Type] [x : (P a)] x)
-
--- Nat theorems
-
-def add_n_zero [n : Nat]
-  (~n -[self : Nat](Eq -Nat (add self zero) self)
-  | [-pred : Nat] [&pred : (Eq -Nat (add pred zero) pred)]
-    (cong -Nat -Nat -(add pred zero) -pred &pred -succ)
-  | (refl -Nat -zero))
-
-def add_n_succ_m [n : Nat]
-  let motive [self : Nat]
-    {-m : Nat} (Eq -Nat (add self (succ m)) (succ (add self m)))
-  let case_succ [-pred : Nat] [pred. : (motive pred)] [-m : Nat]
-    (cong -Nat -Nat -(add pred (succ m)) -(succ (add pred m)) (pred. -m) -succ)
-  let case_zero
-    [-m : Nat] (refl -Nat -(add zero (succ m)))
-  (~n -motive |case_succ |case_zero)
-
-def add_comm [n : Nat]
-  let motive [n : Nat]
-    {-m : Nat} !(Eq -Nat (add n m) (add m n))
-  let case_zero [-m : Nat]
-    | (refl -Nat -(add zero m))
-  let case_succ [-n : Nat] [i : (motive n)] [-m : Nat]
-    [k = (add_n_succ_m m)]
-    [l = (i -m)]
-    | let a (symm -Nat -(add n m) -(add m n) l)
-      let b (k -n)
-      let c (symm -Nat -(add m (succ n)) -(succ (add m n)) b)
-      let d (subs -Nat -(add m n) -(add n m) a)
-      (d -[x : Nat](Eq -Nat (succ x) (add m (succ n))) c)
-  (~n -motive |case_succ |case_zero)
-
-add_comm
-*/

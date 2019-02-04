@@ -4,7 +4,7 @@ const Typ = ()                       => ["Typ", {}];
 const All = (eras, name, bind, body) => ["All", {eras, name, bind, body}];
 const Lam = (eras, name, bind, body) => ["Lam", {eras, name, bind, body}];
 const App = (eras, func, argm)       => ["App", {eras, func, argm}];
-const Let = (name, term, body)       => ["Let", {name, term, body}];
+const Let = (name, copy, body)       => ["Let", {name, copy, body}];
 const Ref = (name, eras)             => ["Ref", {name, eras}];
 
 // A context is an array of (name, type, term) triples
@@ -62,36 +62,11 @@ const index_of = (ctx, name, skip, i = 0) => {
 const show_context = (ctx, i = 0) => {
   var bind = get_bind(ctx, i);
   if (bind) {
-    //console.log("....", bind, i, JSON.stringify(ctx, null, 2));
-    var type = "- " + bind[0] + " : " + (bind[1] ? show(norm(bind[1], {}, true), ctx) : "?");
-    var term = "- " + bind[0] + " = " + (bind[2] ? show(norm(bind[2], {}, true), ctx) : "?");
-    return show_context(ctx, i + 1) + type + "\n" + term + "\n\n";
+    var type = ": " + (bind[1] ? show(norm(bind[1], {}, true), ctx) : "?");
+    var term = "= " + (bind[2] ? show(norm(bind[2], {}, true), ctx) : "?");
+    return show_context(ctx, i + 1) + bind[0] + "\n" + type + "\n" + term + "\n\n";
   } else {
     return "";
-  }
-}
-
-// Formats a type-mismatch error message
-const show_mismatch = (ctx, expect, actual, value) => {
-  var text = "";
-  text += "[ERROR]\nType mismatch on " + value() + ".\n";
-  text += "- Expect = " + show(norm(expect, {}, true), ctx) + "\n";
-  text += "- Actual = " + show(norm(actual, {}, true), ctx) + "\n"
-  text += "\n[CONTEXT]\n" 
-  text += show_context(ctx);
-  return text;
-}
-
-const check_match = (ctx, defs, expect, actual, value) => {
-  try {
-    var checks = equals(expect, actual, defs);
-  } catch (e) {
-    var checks = false;
-    console.log("Couldn't decide if terms are equal.");
-    console.log(e);
-  }
-  if (!checks) {
-    throw show_mismatch(ctx, expect, actual, value);
   }
 }
 
@@ -113,7 +88,7 @@ const show = ([ctor, args], ctx = Ctx()) => {
       var name = args.name;
       var bind = args.bind && show(args.bind, extend(ctx, [name, null, null]));
       var body = show(args.body, extend(ctx, [name, null, null]));
-      return bind ? "[" + eras + name + " : " + bind + "] " + body : "[" + name + "] " + body;
+      return bind ? "[" + eras + name + " : " + bind + "] " + body : "[" + eras + name + "] " + body;
     case "App":
       var text = ")";
       var term = [ctor, args];
@@ -124,9 +99,9 @@ const show = ([ctor, args], ctx = Ctx()) => {
       return "(" + show(term, ctx) + text;
     case "Let":
       var name = args.name;
-      var term = show(args.term, ctx);
+      var copy = show(args.copy, ctx);
       var body = show(args.body, extend(ctx, [args.name, null, null]));
-      return "let " + name + " " + term + " " + body;
+      return "let " + name + " " + copy + " " + body;
     case "Ref":
       return args.name;
   }
@@ -139,7 +114,7 @@ const parse = (code) => {
   }
 
   function is_name_char(char) {
-    return "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.&".indexOf(char) !== -1;
+    return "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.~".indexOf(char) !== -1;
   }
 
   function skip_spaces() {
@@ -232,9 +207,9 @@ const parse = (code) => {
     // Let
     else if (match("let")) {
       var name = parse_name();
-      var term = parse_term(ctx);
+      var copy = parse_term(ctx);
       var body = parse_term(extend(ctx, [name, null, Var(0)]));
-      return Let(name, term, body);
+      return Let(name, copy, body);
     }
 
     // Variable / Reference
@@ -256,12 +231,18 @@ const parse = (code) => {
   var index = 0;
   var defs = {};
   while (index < code.length) {
-    var name = parse_name();
-    var type = match(":") ? parse_term(Ctx()) : null;
-    var skip = parse_exact("=");
-    var term = parse_term(Ctx());
-    defs[name] = {term: term, type: type, done: false};
-    skip_spaces();
+    if (match("--")) {
+      while (index < code.length && code[index] !== "\n") {
+        index += 1;
+      }
+    } else {
+      var name = parse_name();
+      var type = match(":") ? parse_term(Ctx()) : null;
+      var skip = parse_exact("=");
+      var term = parse_term(Ctx());
+      defs[name] = {term: term, type: type, done: false};
+      skip_spaces();
+    }
   }
 
   return defs;
@@ -293,9 +274,9 @@ const shift = ([ctor, term], inc, depth) => {
       return App(eras, func, argm);
     case "Let":
       var name = term.name;
-      var term = shift(term.term, inc, depth);
+      var copy = shift(term.copy, inc, depth);
       var body = shift(term.body, inc, depth + 1);
-      return Let(name, term, body);
+      return Let(name, copy, body);
     case "Ref":
       return Ref(term.name, term.eras);
   }
@@ -327,9 +308,9 @@ const subst = ([ctor, term], val, depth) => {
       return App(eras, func, argm);
     case "Let":
       var name = term.name;
-      var term = subst(term.term, val, depth);
+      var copy = subst(term.copy, val, depth);
       var body = subst(term.body, val && shift(val, 1, 0), depth + 1);
-      return Let(name, term, body);
+      return Let(name, copy, body);
     case "Ref":
       var name = term.name;
       var eras = term.eras;
@@ -339,7 +320,7 @@ const subst = ([ctor, term], val, depth) => {
 
 // Equality
 const equals = (a, b, defs) => {
-  // Checks if both terms are already identical
+  // Checks if whnfs are equal without dereferencing
   var a = norm(a, {}, false);
   var b = norm(b, {}, false);
   if ( a[0] === "Ref" && b[0] === "Ref" && a[1].name === b[1].name
@@ -347,7 +328,7 @@ const equals = (a, b, defs) => {
     || a[0] === "Cpy" && b[0] === "Cpy" && equals(a[1].copy, b[1].copy, defs) && equals(a[1].body, b[1].body, defs)) {
     return true;
   }
-  // Otherwise, reduces to weak head normal form are equal and recurse
+  // Otherwise, checks if whnfs are equal with dereferencing
   var a = norm(a, defs, false);
   var b = norm(b, defs, false);
   if (a[0] === "Typ" && b[0] === "Typ") {
@@ -367,6 +348,7 @@ const equals = (a, b, defs) => {
   } else if (a[0] === "Var" && b[0] === "Var") {
     return a[1].index === b[1].index;
   }
+  // Otherwise, terms are different
   return false;
 }
 
@@ -385,7 +367,6 @@ const norm = ([ctor, term], defs, full) => {
     if (defs[name]) {
       var term = norm(defs[name].term, defs, full);
       var term = eras ? erase(term) : term;
-      //console.log("deref", name, JSON.stringify(term));
       return term;
     } else {
       return Ref(name, eras);
@@ -394,53 +375,52 @@ const norm = ([ctor, term], defs, full) => {
   switch (ctor) {
     case "Var": return Var(term.index);
     case "Typ": return Typ();
-    case "All": return All(term.eras, term.name, term.bind, cont(term.body, defs, full));
-    case "Lam": return Lam(term.eras, term.name, term.bind, cont(term.body, defs, full)); 
+    case "All": return All(term.eras, term.name, cont(term.bind, defs, false), cont(term.body, defs, full));
+    case "Lam": return Lam(term.eras, term.name, term.bind && cont(term.bind, defs, false), cont(term.body, defs, full)); 
     case "App": return apply(term.eras, term.func, term.argm);
-    case "Let": return norm(subst(term.body, term.term, 0), defs, full);
+    case "Let": return norm(subst(term.body, term.copy, 0), defs, full);
     case "Ref": return dereference(term.name, term.eras);
   }
 }
 
 // Check
-const check = (term, defs, ctx = Ctx()) => {
+const infer = (term, defs, ctx = Ctx()) => {
   switch (term[0]) {
     case "Typ":
       return Typ();
     case "All":
       var ex_ctx = extend(ctx, [term[1].name, term[1].bind, Var(0)]);
-      var bind_t = check(term[1].bind, defs, ex_ctx);
-      var body_t = check(term[1].body, defs, ex_ctx);
+      var bind_t = infer(term[1].bind, defs, ex_ctx);
+      var body_t = infer(term[1].body, defs, ex_ctx);
       if (!equals(bind_t, Typ(), defs) || !equals(body_t, Typ(), defs)) {
-        throw "[ERROR]\nForall not a type: `" + show(term, ctx) + "`. Context:\n" + show_context(ctx);
+        throw "[ERROR]\nForall not a type: `" + show(term, ctx) + "`. Context:\n\n" + show_context(ctx);
       }
       return Typ();
     case "Lam":
       if (term[1].bind === null) {
-        throw "[ERROR]\nCan't infer non-annotated lambda. Context:\n" + show_context(ctx);
+        throw "[ERROR]\nCan't infer non-annotated lambda. Context:\n\n" + show_context(ctx);
       } else {
         var ex_ctx = extend(ctx, [term[1].name, term[1].bind, Var(0)]);
-        var body_t = check(term[1].body, defs, ex_ctx);
+        var body_t = infer(term[1].body, defs, ex_ctx);
         var term_t = All(term[1].eras, term[1].name, term[1].bind, body_t);
-        check(term_t, defs, ctx);
+        infer(term_t, defs, ctx);
         return term_t;
       }
     case "App":
-      var func_t = norm(check(term[1].func, defs, ctx), defs, false);
-      var argm_t = check(term[1].argm, defs, ctx);
+      var func_t = norm(infer(term[1].func, defs, ctx), defs, false);
       if (func_t[0] !== "All") {
-        throw "[ERROR]\nNon-function application on `" + show(term, ctx) + "`.\n- Context:\n" + show_context(ctx);
+        throw "[ERROR]\nNon-function application on `" + show(term, ctx) + "`. Context:\n\n" + show_context(ctx);
       }
       if (func_t[1].eras !== term[1].eras) {
         throw "[ERROR]\nMismatched erasure on " + show(term, ctx) + ".";
       }
       var bind_t = subst(func_t[1].bind, term[1].argm, 0);
-      check_match(ctx, defs, bind_t, argm_t, () => "application: `" + show(term, ctx) + "`");
+      check(term[1].argm, bind_t, defs, ctx);
       return subst(func_t[1].body, term[1].argm, 0);
     case "Let":
-      var term_t = check(term[1].term, defs, ctx);
-      var ex_ctx = extend(context, [term[1].name, shift(term_t, 1, 0), shift(term[1].term, 1, 0)]);
-      return subst(check(term[1].body, ex_ctx, eras), term[1].term, 0);
+      var copy_t = infer(term[1].copy, defs, ctx);
+      var ex_ctx = extend(ctx, [term[1].name, shift(copy_t, 1, 0), shift(term[1].copy, 1, 0)]);
+      return subst(infer(term[1].body, defs, ex_ctx), term[1].copy, 0);
     case "Ref":
       if (defs[term[1].name]) {
         var def = defs[term[1].name];
@@ -448,10 +428,12 @@ const check = (term, defs, ctx = Ctx()) => {
           return def.type;
         } else {
           def.done = true;
-          var term_t = check(def.term, defs, ctx);
-          def.type = def.type || term_t;
-          check_match(ctx, defs, def.type, term_t, () => "definition: `" + term[1].name + "`");
-          return term_t;
+          if (def.type) {
+            check(def.term, def.type, defs, ctx);
+          } else {
+            def.type = infer(def.term, defs, ctx);
+          }
+          return def.type;
         }
       } else {
         throw "[ERROR]\nUndefined reference: `" + term[1].name + "`.";
@@ -459,6 +441,38 @@ const check = (term, defs, ctx = Ctx()) => {
     case "Var":
       return get_type(ctx, term[1].index);
   }
+}
+
+// Checks if a term has given type
+const check = (term, type, defs, ctx = Ctx()) => {
+  var type = norm(type, defs, false);
+  if (type[0] === "All" && term[0] === "Lam" && !term[1].bind) {
+    check(term[1].body, type[1].body, defs, extend(ctx, [type[1].name, type[1].bind, Var(0)]));
+    infer(type, defs, ctx);
+  } else {
+    var term_t = infer(term, defs, ctx);
+    try {
+      var checks = equals(type, term_t, defs);
+    } catch (e) {
+      var checks = false;
+      console.log("Couldn't decide if terms are equal.");
+      console.log(e);
+    }
+    if (!checks) {
+      throw show_mismatch(ctx, type, norm(term_t, defs, false), () => "`" + show(term, ctx) + "`");
+    }
+  }
+}
+
+// Formats a type-mismatch error message
+const show_mismatch = (ctx, expect, actual, value) => {
+  var text = "";
+  text += "[ERROR]\nType mismatch on " + value() + ".\n";
+  text += "- Expect = " + show(norm(expect, {}, true), ctx) + "\n";
+  text += "- Actual = " + show(norm(actual, {}, true), ctx) + "\n"
+  text += "\n[CONTEXT]\n" 
+  text += show_context(ctx);
+  return text;
 }
 
 module.exports = {
@@ -471,7 +485,6 @@ module.exports = {
   index_of,
   show_context,
   show_mismatch,
-  check_match,
   Var,
   Typ,
   All,
@@ -482,5 +495,6 @@ module.exports = {
   show,
   parse,
   norm,
+  infer,
   check
 };
