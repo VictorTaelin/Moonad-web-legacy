@@ -2,6 +2,7 @@ var formality = require("./formality.js");
 var compiler = require("./compiler.js");
 
 var example = `
+<<<<<<< Updated upstream
   def the [-T : Type] [x  : T] x
 
   -- Empty type
@@ -166,6 +167,52 @@ var example = `
     (~n -motive |case_succ |case_zero)
 
   add_comm
+=======
+the
+: {A : Type} {u : A} A
+= [A : Type] [u : A] u
+
+Bool
+: {self : (Bool self)} Type
+= [self : (Bool self)]
+  {-Bool. : {self : (Bool self)} Type}
+  {true.  : (Bool. true)}
+  {fals.  : (Bool. fals)}
+  (Bool. self)
+
+true
+: (Bool true)
+= [-Bool. : {self : (Bool self)} Type]
+  [true.  : (Bool. true)]
+  [fals.  : (Bool. fals)]
+  true.
+
+fals
+: (Bool fals)
+= [-Bool. : {self : (Bool self)} Type]
+  [true.  : (Bool. true)]
+  [fals.  : (Bool. fals)]
+  fals.
+
+bool_induction
+: {self  : (Bool self)}
+  {-Bool. : {self : (Bool self)} Type}
+  {true.  : (Bool. true)}
+  {fals.  : (Bool. fals)}
+  (Bool. self)
+= [self  : (Bool self)]
+  [-Bool. : {self : (Bool self)} Type]
+  [true.  : (Bool. true)]
+  [fals.  : (Bool. fals)]
+  (self -Bool. true. fals.)
+
+not
+: {self : (Bool self)} (Bool (not self))
+= [self : (Bool self)] (self -[self : (Bool self)] (Bool (not self)) fals true)
+
+main
+= (the (Bool true) (not (not (not (not true)))))
+>>>>>>> Stashed changes
 `;
 
 var term = formality.parse(example);

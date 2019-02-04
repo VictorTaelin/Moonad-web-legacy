@@ -66,6 +66,7 @@ class Context {
       binds = binds.rest;
     }
     return null;
+<<<<<<< Updated upstream
   }
 
   // Pretty prints a context
@@ -113,6 +114,15 @@ class Context {
 
   subst(term, value) {
     return term.subst(this.extend(["", null, value.shift(0, 1)])).shift(0, -1);
+=======
+  } else if (j < i) {
+    return get_bind(ctx.tail, i, j + 1);
+  } else {
+    var name = ctx.head[0];
+    var type = ctx.head[1] ? shift(ctx.head[1], i, 0) : null;
+    var term = ctx.head[2] ? shift(ctx.head[2], i, 0) : null;
+    return [name, type, term];
+>>>>>>> Stashed changes
   }
 }
 
@@ -1194,14 +1204,192 @@ function parse(code) {
     }
   }
 
+<<<<<<< Updated upstream
   var term = parse_term(new Context());
+=======
+  var index = 0;
+  var defs = {};
+  while (index < code.length) {
+    var name = parse_name();
+    var type = match(":") ? parse_term(Ctx()) : null;
+    var skip = parse_exact("=");
+    var term = parse_term(Ctx());
+    defs[name] = {term: term, type: type, done: false};
+    skip_spaces();
+  }
+
+  return defs;
+}
+
+// Shifts a term
+const shift = ([ctor, term], inc, depth) => {
+  switch (ctor) {
+    case "Var":
+      return Var(term.index < depth ? term.index : term.index + inc);
+    case "Typ":
+      return Typ();
+    case "All":
+      var eras = term.eras;
+      var name = term.name;
+      var bind = shift(term.bind, inc, depth + 1);
+      var body = shift(term.body, inc, depth + 1);
+      return All(eras, name, bind, body);
+    case "Lam":
+      var eras = term.eras;
+      var name = term.name;
+      var bind = term.bind && shift(term.bind, inc, depth + 1);
+      var body =              shift(term.body, inc, depth + 1);
+      return Lam(eras, name, bind, body);
+    case "App":
+      var eras = term.eras;
+      var func = shift(term.func, inc, depth);
+      var argm = shift(term.argm, inc, depth);
+      return App(eras, func, argm);
+    case "Let":
+      var name = term.name;
+      var term = shift(term.term, inc, depth);
+      var body = shift(term.body, inc, depth + 1);
+      return Let(name, term, body);
+    case "Ref":
+      return Ref(term.name, term.eras);
+  }
+}
+
+// Substitution
+const subst = ([ctor, term], val, depth) => {
+  switch (ctor) {
+    case "Var":
+      return depth === term.index ? val : Var(term.index - (term.index > depth ? 1 : 0));
+    case "Typ":
+      return Typ();
+    case "All":
+      var eras = term.eras;
+      var name = term.name;
+      var bind = subst(term.bind, val && shift(val, 1, 0), depth + 1);
+      var body = subst(term.body, val && shift(val, 1, 0), depth + 1);
+      return All(eras, name, bind, body);
+    case "Lam":
+      var eras = term.eras;
+      var name = term.name;
+      var body =              subst(term.body, val && shift(val, 1, 0), depth + 1);
+      return Lam(eras, name, bind, body);
+    case "App":
+      var eras = term.eras;
+      var func = subst(term.func, val, depth);
+      var argm = subst(term.argm, val, depth);
+      return App(eras, func, argm);
+    case "Let":
+      var name = term.name;
+      var term = subst(term.term, val, depth);
+      var body = subst(term.body, val && shift(val, 1, 0), depth + 1);
+      return Let(name, term, body);
+    case "Ref":
+      var name = term.name;
+      var eras = term.eras;
+      return Ref(name, eras);
+  }
+}
+
+// Equality
+const equals = (a, b, defs) => {
+  // Checks if both terms are already identical
+  var a = norm(a, {}, false);
+  var b = norm(b, {}, false);
+  if ( a[0] === "Ref" && b[0] === "Ref" && a[1].name === b[1].name
+    || a[0] === "App" && b[0] === "App" && equals(a[1].func, b[1].func, defs) && equals(a[1].argm, b[1].argm, defs)
+    || a[0] === "Cpy" && b[0] === "Cpy" && equals(a[1].copy, b[1].copy, defs) && equals(a[1].body, b[1].body, defs)) {
+    return true;
+  }
+  // Otherwise, reduces to weak head normal form are equal and recurse
+  var a = norm(a, defs, false);
+  var b = norm(b, defs, false);
+  if (a[0] === "Typ" && b[0] === "Typ") {
+    return true;
+  } else if (a[0] === "All" && b[0] === "All") {
+    var eras = a[1].eras === b[1].eras;
+    var bind = equals(a[1].bind, b[1].bind, defs);
+    var body = equals(a[1].body, b[1].body, defs);
+    return eras && bind && body;
+  } else if (a[0] === "Lam" && b[0] === "Lam") {
+    var body = equals(a[1].body, b[1].body, defs);
+    return body;
+  } else if (a[0] === "App" && b[0] === "App") {
+    var func = equals(a[1].func, b[1].func, defs);
+    var argm = equals(a[1].argm, b[1].argm, defs);
+    return func && argm;
+  } else if (a[0] === "Var" && b[0] === "Var") {
+    return a[1].index === b[1].index;
+  }
+  return false;
+}
+>>>>>>> Stashed changes
 
   var unbound_names = Object.keys(unbound_refs);
   if (unbound_names.length > 0) {
     throw "Use of undefined variables: " + unbound_names.join(", ") + ".\n";
   }
 
+<<<<<<< Updated upstream
   return term;
+=======
+// Check
+const check = (term, defs, ctx = Ctx()) => {
+  switch (term[0]) {
+    case "Typ":
+      return Typ();
+    case "All":
+      var ex_ctx = extend(ctx, [term[1].name, term[1].bind, Var(0)]);
+      var bind_t = check(term[1].bind, defs, ex_ctx);
+      var body_t = check(term[1].body, defs, ex_ctx);
+      if (!equals(bind_t, Typ(), defs) || !equals(body_t, Typ(), defs)) {
+        throw "[ERROR]\nForall not a type: `" + show(term, ctx) + "`. Context:\n" + show_context(ctx);
+      }
+      return Typ();
+    case "Lam":
+      if (term[1].bind === null) {
+        throw "[ERROR]\nCan't infer non-annotated lambda. Context:\n" + show_context(ctx);
+      } else {
+        var ex_ctx = extend(ctx, [term[1].name, term[1].bind, Var(0)]);
+        var body_t = check(term[1].body, defs, ex_ctx);
+        var term_t = All(term[1].eras, term[1].name, term[1].bind, body_t);
+        check(term_t, defs, ctx);
+        return term_t;
+      }
+    case "App":
+      var func_t = norm(check(term[1].func, defs, ctx), defs, false);
+      var argm_t = check(term[1].argm, defs, ctx);
+      if (func_t[0] !== "All") {
+        throw "[ERROR]\nNon-function application on `" + show(term, ctx) + "`.\n- Context:\n" + show_context(ctx);
+      }
+      if (func_t[1].eras !== term[1].eras) {
+        throw "[ERROR]\nMismatched erasure on " + show(term, ctx) + ".";
+      }
+      var bind_t = subst(func_t[1].bind, term[1].argm, 0);
+
+      return subst(func_t[1].body, term[1].argm, 0);
+    case "Let":
+      var term_t = check(term[1].term, defs, ctx);
+      var ex_ctx = extend(context, [term[1].name, shift(term_t, 1, 0), shift(term[1].term, 1, 0)]);
+      return subst(check(term[1].body, ex_ctx, eras), term[1].term, 0);
+    case "Ref":
+      if (defs[term[1].name]) {
+        var def = defs[term[1].name];
+        if (def.done) {
+          return def.type;
+        } else {
+          def.done = true;
+          var term_t = check(def.term, defs, ctx);
+          def.type = def.type || term_t;
+          check_match(ctx, defs, def.type, term_t, () => "definition: `" + term[1].name + "`");
+          return term_t;
+        }
+      } else {
+        throw "[ERROR]\nUndefined reference: `" + term[1].name + "`.";
+      }
+    case "Var":
+      return get_type(ctx, term[1].index);
+  }
+>>>>>>> Stashed changes
 }
 
 module.exports = {Context, Var, Typ, All, Lam, App, Put, Box, Cpy, Slf, New, Use, Let, Ref, Ann, Nil, equals, parse};
