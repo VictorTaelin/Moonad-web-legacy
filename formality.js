@@ -1,1022 +1,139 @@
-// A context is an array of (name, type) tiples
-class Context {
-  constructor(binds = null) {
-    this.binds = binds;
-  }
+// A Formality term is an ADT represented by a JSON
+const Var = (index)                  => ["Var", {index}];
+const Typ = ()                       => ["Typ", {}];
+const All = (eras, name, bind, body) => ["All", {eras, name, bind, body}];
+const Lam = (eras, name, bind, body) => ["Lam", {eras, name, bind, body}];
+const App = (eras, func, argm)       => ["App", {eras, func, argm}];
+const Let = (name, term, body)       => ["Let", {name, term, body}];
+const Ref = (name, eras)             => ["Ref", {name, eras}];
 
-  // Extends the context with a term, shifting accourdingly
-  extend(binder) {
-    return new Context({bind: binder, rest: this.binds});
-  }
+// A context is an array of (name, type, term) triples
+const Ctx = () => null;
 
-  get_bind(index) {
-    var binds = this.binds;
-    for (var i = 0; i < index; ++i) {
-      binds = binds && binds.rest;
-    }
-    return binds ? binds.bind : null;
-  }
+const extend = (ctx, bind) => {
+  return {head: bind, tail: ctx};
+}
 
-  // Returns the name of an element given its index,
-  // avoiding capture by appending 's if needed
-  get_name(index) {
-    var bind = this.get_bind(index);
-    if (!bind) { 
-      return null;
-    } else {
-      var bruijn = "";
-      var binds = this.binds;
-      for (var i = 0; i < index; ++i) {
-        if (binds.bind[0] === bind[0]) {
-          bruijn += "'";
-        }
-        binds = binds.rest;
-      }
-      return bind[0] + bruijn;
-    }
-  }
-
-  // Returns the type of an element given its index
-  get_type(index) {
-    var bind = this.get_bind(index);
-    return bind ? bind[1].shift(0, index) : null;
-  }
-
-  // Returns the term on given index
-  get_term(index) {
-    var bind = this.get_bind(index);
-    return bind ? bind[2].shift(0, index) : null;
-  }
-
-  // Finds a term by its name, skipping a number of terms
-  // (this allows the x''' syntax be used to address shadowed vars)
-  find_by_name(find_name, skip) {
-    var binds = this.binds;
-    var index = 0;
-    while (binds) {
-      var [name, type, term] = binds.bind;
-      if (find_name === name) {
-        if (skip > 0) {
-          skip -= 1;
-        } else {
-          return [name, type && type.shift(0, index), term && term.shift(0, index)];
-        }
-      }
-      index += 1;
-      binds = binds.rest;
-    }
+const get_bind = (ctx, i, j = 0) => {
+  if (!ctx) {
     return null;
-<<<<<<< Updated upstream
-  }
-
-  // Pretty prints a context
-  show() {
-    var text = "";
-    var binds = this.binds;
-    var index = 0;
-    while (binds) {
-      var [name, type, term] = binds.bind;
-      text = "- " + name + " : " + (term ? type.shift(0, index).norm(false, this).to_string(this) : "?") + "\n"
-           + "- " + name + " = " + (term ? term.shift(0, index).norm(false, this).to_string(this) : "?") + "\n~\n" + text;
-      binds = binds.rest;
-      index += 1;
-    }
-    return text;
-  }
-
-  // Formats a type-mismatch error message
-  show_mismatch(expect, actual, value) {
-    var text = "";
-    text += "[ERROR]\nType mismatch on " + value() + ".\n";
-    text += "- Expect = " + expect.norm(false, this).to_string(this) + "\n";
-    text += "- Actual = " + actual.norm(false, this).to_string(this) + "\n"
-    text += "\n[CONTEXT]\n" 
-    text += this.show();
-    return text;
-  }
-
-  check_match(expect, actual, value) {
-    try {
-      var checks = this.equals(expect, actual);
-      var unsure = false;
-    } catch (e) {
-      var checks = false;
-      var unsure = true;
-    }
-    if (!checks) {
-      throw this.show_mismatch(expect, actual, value) + (unsure ? "(Couldn't decide if terms are equal.)" : "");
-    }
-  }
-
-  equals(a, b) {
-    return equals(a.norm(true,this).erase(), b.norm(true,this).erase());
-  }
-
-  subst(term, value) {
-    return term.subst(this.extend(["", null, value.shift(0, 1)])).shift(0, -1);
-=======
   } else if (j < i) {
     return get_bind(ctx.tail, i, j + 1);
   } else {
     var name = ctx.head[0];
-    var type = ctx.head[1] ? shift(ctx.head[1], i, 0) : null;
-    var term = ctx.head[2] ? shift(ctx.head[2], i, 0) : null;
-    return [name, type, term];
->>>>>>> Stashed changes
+    var term = ctx.head[1] ? shift(ctx.head[1], i, 0) : null;
+    var type = ctx.head[2] ? shift(ctx.head[2], i, 0) : null;
+    return [name, term, type];
   }
 }
 
-// Variable
-class Var {
-  constructor(index) {
-    this.index = index; // Number
+const get_name = (ctx, i) => {
+  const count = (ctx, name, i) => {
+    return i === 0 ? 0 : (ctx.head[0] === name ? 1 : 0) + count(ctx.tail, name, i - 1);
   }
-
-  to_string(context = new Context()) {
-    return context.get_name(this.index) || "#" + this.index;
+  const repeat = (str, i) => {
+    return i === 0 ? "" : str + repeat(str, i - 1);
   }
+  var name = get_bind(ctx, i)[0];
+  return repeat("'", count(ctx, name, i)) + name;
+}
 
-  shift(depth, inc) {
-    return new Var(this.index < depth ? this.index : this.index + inc);
-  }
+const get_type = (ctx, i) => {
+  return get_bind(ctx, i) ? get_bind(ctx, i)[1] : null;
+}
 
-  uses(depth) {
-    return this.index === depth ? 1 : 0;
-  }
+const get_term = (ctx, i) => {
+  return get_bind(ctx, i) ? get_bind(ctx, i)[2] : null;
+}
 
-  stratified(depth, level) {
-    return this.index === depth ? level === 0 : true;
-  }
-
-  subst(context = new Context()) {
-    return context.get_term(this.index) || this;
-  }
-
-  head(dref) {
-    return this;
-  }
-
-  norm(dref, context = new Context()) {
-    return this.subst(context);
-  }
-
-  erase() {
-    return this;
-  }
-
-  check(context = new Context(), eras = false) {
-    return context.get_type(this.index);
+const index_of = (ctx, name, skip, i = 0) => {
+  if (!ctx) {
+    return null;
+  } else if (ctx.head[0] === name && skip > 0) {
+    return index_of(ctx.tail, name, skip - 1, i + 1);
+  } else if (ctx.head[0] !== name) {
+    return index_of(ctx.tail, name, skip, i + 1);
+  } else {
+    return i;
   }
 }
 
-// Type of types
-class Typ {
-  constructor() {
-  }
-
-  to_string(context = new Context()) {
-    return "Type";
-  }
-
-  shift(depth, inc) {
-    return new Typ();
-  }
-
-  uses(depth) {
-    return 0;
-  }
-
-  stratified(depth, level) {
-    return true;
-  }
-
-  subst(context = new Context()) {
-    return new Typ();
-  }
-
-  head(dref) {
-    return this;
-  }
-
-  norm(dref, context = new Context()) {
-    return new Typ();
-  }
-
-  erase() {
-    return new Typ();
-  }
-
-  check(context = new Context(), eras = false) {
-    return new Typ();
+// Pretty prints a context
+const show_context = (ctx, i = 0) => {
+  var bind = get_bind(ctx, i);
+  if (bind) {
+    //console.log("....", bind, i, JSON.stringify(ctx, null, 2));
+    var type = "- " + bind[0] + " : " + (bind[1] ? show(norm(bind[1], {}, true), ctx) : "?");
+    var term = "- " + bind[0] + " = " + (bind[2] ? show(norm(bind[2], {}, true), ctx) : "?");
+    return show_context(ctx, i + 1) + type + "\n" + term + "\n\n";
+  } else {
+    return "";
   }
 }
 
-// Lambda (type): {x : A} B
-class All {
-  constructor(eras, name, bind, body) {
-    this.eras = eras; // Bool (true if erased)
-    this.name = name; // String (argument name)
-    this.bind = bind; // Term (argument type)
-    this.body = body; // Term (function body)
-  }
+// Formats a type-mismatch error message
+const show_mismatch = (ctx, expect, actual, value) => {
+  var text = "";
+  text += "[ERROR]\nType mismatch on " + value() + ".\n";
+  text += "- Expect = " + show(norm(expect, {}, true), ctx) + "\n";
+  text += "- Actual = " + show(norm(actual, {}, true), ctx) + "\n"
+  text += "\n[CONTEXT]\n" 
+  text += show_context(ctx);
+  return text;
+}
 
-  to_string(context = new Context()) {
-    var eras = this.eras ? "-" : "";
-    var name = this.name;
-    var bind = " : " + this.bind.to_string(context);
-    var body = this.body.to_string(context.extend([this.name, null, null]));
-    return "{" + eras + name + bind + "} " + body;
+const check_match = (ctx, defs, expect, actual, value) => {
+  try {
+    var checks = equals(expect, actual, defs);
+  } catch (e) {
+    var checks = false;
+    console.log("Couldn't decide if terms are equal.");
+    console.log(e);
   }
-
-  shift(depth, inc) {
-    var eras = this.eras;
-    var name = this.name;
-    var bind = this.bind.shift(depth, inc);
-    var body = this.body.shift(depth + 1, inc);
-    return new All(eras, name, bind, body);
-  }
-
-  uses(depth, inc) {
-    return 0;
-  }
-
-  stratified(depth, level) {
-    return true;
-  }
-
-  subst(context = new Context()) {
-    var eras = this.eras;
-    var name = this.name;
-    var bind = this.bind.subst(context);
-    var body = this.body.subst(context.extend([this.name, null, new Var(0)]));
-    return new All(eras, name, bind, body);
-  }
-
-  head(dref) {
-    return this;
-  }
-
-  norm(dref, context = new Context()) {
-    var eras = this.eras;
-    var name = this.name;
-    var bind = this.bind.subst(context);
-    var body = this.body.norm(dref, context.extend([this.name, null, new Var(0)]));
-    return new All(eras, name, bind, body);
-  }
-
-  erase() {
-    var eras = this.eras;
-    var name = this.name;
-    var bind = this.bind.erase();
-    var body = this.body.erase();
-    return new All(eras, name, bind, body);
-  }
-
-  check(context = new Context(), eras = false) {
-    var bind_t = this.bind.check(context, true);
-    var body_t = this.body.check(context.extend([this.name, this.bind.shift(0, 1), new Var(0)]), true);
-    if (!equals(bind_t, new Typ()) || !equals(body_t, new Typ())) {
-      throw "[ERROR]\nForall not a type: `" + this.to_string(context) + "`. Context:\n" + context.show();
-    }
-    return new Typ();
+  if (!checks) {
+    throw show_mismatch(ctx, expect, actual, value);
   }
 }
 
-// Lambda (value): [x : A] t
-class Lam {
-  constructor(eras, name, bind, body) {
-    this.eras = eras; // Bool (true if erased)
-    this.name = name; // String (argument name)
-    this.bind = bind; // Term (argument type)
-    this.body = body; // Term (function body)
-  }
-
-  to_string(context = new Context()) {
-    var eras = this.eras ? "-" : "";
-    var name = this.name;
-    var bind = this.bind && " : " + this.bind.to_string(context);
-    var body = this.body.to_string(context.extend([name, null, null]));
-    return bind ? "[" + eras + name + bind + "] " + body : "[" + name + "] " + body;
-  }
-
-  shift(depth, inc) {
-    var eras = this.eras;
-    var name = this.name;
-    var bind = this.bind && this.bind.shift(depth, inc);
-    var body = this.body.shift(depth + 1, inc);
-    return new Lam(eras, name, bind, body);
-  }
-  
-  uses(depth) {
-    return this.body.uses(depth + 1);
-  }
-
-  stratified(depth, level) {
-    return this.body.stratified(depth + 1, level);
-  }
-
-  subst(context = new Context()) {
-    var eras = this.eras;
-    var name = this.name;
-    var bind = this.bind && this.bind.subst(context);
-    var body = this.body.subst(context.extend([this.name, null, new Var(0)]));
-    return new Lam(eras, name, bind, body);
-  }
-
-  head(dref) {
-    return this;
-  }
-
-  norm(dref, context = new Context()) {
-    var eras = this.eras;
-    var name = this.name;
-    var bind = this.bind && this.bind.subst(context);
-    var body = this.body.norm(dref, context.extend([this.name, null, new Var(0)]));
-    return new Lam(eras, name, bind, body);
-  }
-
-  erase() {
-    if (this.eras) {
-      return new Context().subst(this.body, new Nil()).erase();
-    } else {
-      var eras = this.eras;
-      var name = this.name;
-      var bind = null;
-      var body = this.body.erase();
-      return new Lam(eras, name, bind, body);
-    }
-  }
-
-  check(context = new Context(), eras = false) {
-    if (this.bind === null) {
-      throw "[ERROR]\nCan't infer non-annotated lambda. Context:\n" + context.show();
-    } else if (!eras && this.body.uses(0) > 1) {
-      throw "[ERROR]\nNon-linear function on: `" + this.to_string(context) + "`."
-          + "\nVariable '" + this.name + "' used " + this.body.uses(0) + " times.";
-    } else if (!eras && !this.body.stratified(0, 0)) {
-      throw "[ERROR]\nNon-stratified function on: `" + this.to_string(context) + "`."
-          + "\nUses of variable '" + this.name + "' can't have enclosing boxes.";
-    } else {
-      var body = this.body.check(context.extend([this.name, this.bind.shift(0, 1), new Var(0)]), eras);
-      var type = new All(this.eras, this.name, this.bind, body);
-      type.check(context, true);
-      return type;
-    }
-  }
-}
-
-// Lambda (elim): (f x y z ...)
-class App {
-  constructor(eras, func, argm) {
-    this.eras = eras; // Bool (true if erased)
-    this.func = func; // Term (the function)
-    this.argm = argm; // Term (the argument)
-  }
-
-  to_string(context = new Context()) {
-    var text = ")";
-    var self = this;
-    while (self instanceof App) {
-      text = " " + (self.eras ? "-" : "") + self.argm.to_string(context) + text;
-      self = self.func;
-    }
-    return "(" + self.to_string(context) + text;
-  }
-
-  shift(depth, inc) {
-    var eras = this.eras;
-    var func = this.func.shift(depth, inc);
-    var argm = this.argm.shift(depth, inc);
-    return new App(eras, func, argm);
-  }
-
-  uses(depth) {
-    return this.func.uses(depth) + (this.eras ? 0 : this.argm.uses(depth));
-  }
-
-  stratified(depth, level) {
-    return this.func.stratified(depth, level) && (this.eras || this.argm.stratified(depth, level));
-  }
-
-  subst(context = new Context()) {
-    var eras = this.eras;
-    var func = this.func.subst(context);
-    var argm = this.argm.subst(context);
-    return new App(eras, func, argm);
-  }
-
-  head(dref) {
-    var func = this.func.head(dref);
-    if (func instanceof Lam) {
-      return new Context().subst(func.body, this.argm).head(dref);
-    } else {
-      return this;
-    }
-  }
-
-  norm(dref, context = new Context()) {
-    var func = this.func.norm(dref, context);
-    if (func instanceof Lam) {
-      return context.subst(func.body, this.argm).norm(dref, context);
-    } else {
-      var eras = this.eras;
-      var argm = eras ? this.argm.subst(context) : this.argm.norm(dref, context);
-      return new App(eras, func, argm);
-    }
-  }
-
-  erase() {
-    if (this.eras) {
-      return this.func.erase();
-    } else {
-      var eras = this.eras;
-      var func = this.func.erase();
-      var argm = this.argm.erase();
-      return new App(eras, func, argm);
-    }
-  }
-
-  check(context = new Context(), eras = false) {
-    var func_t = this.func.check(context, eras).subst(context).head(true);
-    var argm_t = this.argm.check(context, eras || this.eras);
-    if (!(func_t instanceof All)) {
-      throw "[ERROR]\nNon-function application on `" + this.to_string(context) + "`.\n- Context:\n" + context.show();
-    }
-    if (func_t.eras !== this.eras) {
-      throw "[ERROR]\nMismatched erasure on " + this.to_string(context) + ".";
-    }
-    context.check_match(func_t.bind, argm_t, () => "application: `" + this.to_string(context) + "`");
-    return context.subst(func_t.body, this.argm);
-  }
-}
-
-// Copy (type): !A
-class Put {
-  constructor(term) {
-    this.term = term;
-  }
-
-  to_string(context = new Context()) {
-    return "|" + this.term.to_string(context);
-  }
-
-  shift(depth, inc) {
-    return new Put(this.term.shift(depth, inc));
-  }
-
-  uses(depth) {
-    return this.term.uses(depth);
-  }
-
-  stratified(depth, level) {
-    return this.term.stratified(depth, level + 1);
-  }
-
-  subst(context = new Context()) {
-    return new Put(this.term.subst(context));
-  }
-
-  head(dref) {
-    return this;
-  }
-
-  norm(dref, context = new Context()) {
-    return new Put(this.term.norm(dref, context));
-  }
-
-  erase() {
-    return this.term.erase();
-  }
-
-  check(context = new Context(), eras = false) {
-    return new Box(this.term.check(context, eras));
-  }
-}
-
-// Copy (value): |a 
-class Box {
-  constructor(term) {
-    this.term = term;
-  }
-
-  to_string(context = new Context()) {
-    return "!" + this.term.to_string(context);
-  }
-
-  shift(depth, inc) {
-    return new Box(this.term.shift(depth, inc));
-  }
-
-  uses(depth) {
-    return 0;
-  }
-
-  stratified(depth, level) {
-    return true;
-  }
-
-  subst(context = new Context()) {
-    return new Box(this.term.subst(context));
-  }
-
-  head(dref) {
-    return this;
-  }
-
-  norm(dref, context = new Context()) {
-    return new Box(this.term.norm(dref, context));
-  }
-
-  erase() {
-    return new Box(this.term.erase());
-  }
-
-  check(context = new Context(), eras = false) {
-    var term_t = this.term.check(context, true);
-    if (!context.equals(term_t, new Typ())) {
-      throw "Boxed term not a type:" + this.to_string(context) + "\n- Context:\n" + context.show();
-    }
-    return new Typ();
-  }
-}
-
-// Copy (elim): copy x a b
-class Cpy {
-  constructor(name, copy, body) {
-    this.name = name; // String
-    this.copy = copy; // Term
-    this.body = body; // Term
-  }
-
-  to_string(context = new Context()) {
-    var name = this.name;
-    var copy = this.copy.to_string(context);
-    var body = this.body.to_string(context.extend([this.name, null, new Var(0)]));
-    return "[" + name + " = " + copy + "] " + body;
-  }
-
-  shift(depth, inc) {
-    var name = this.name;
-    var copy = this.copy.shift(depth, inc);
-    var body = this.body.shift(depth + 1, inc);
-    return new Cpy(name, copy, body);
-  }
-
-  uses(depth) {
-    return this.copy.uses(depth) + this.body.uses(depth + 1);
-  }
-
-  stratified(depth, level) {
-    return this.copy.stratified(depth, level) && this.body.stratified(depth + 1, level);
-  }
-
-  subst(context = new Context()) {
-    var name = this.name;
-    var copy = this.copy.subst(context);
-    var body = this.body.subst(context.extend([this.name, null, new Var(0)]));
-    return new Cpy(name, copy, body);
-  }
-
-  head(dref) {
-    var copy = this.copy.head(dref);
-    if (copy instanceof Put) {
-      return new Context().subst(this.body, copy.term).head(dref);
-    } else {
-      return this;
-    }
-  }
-
-  norm(dref, context = new Context()) {
-    var copy = this.copy.norm(dref, context);
-    if (copy instanceof Put) {
-      return context.subst(this.body, copy.term).norm(dref, context);
-    } else {
-      var name = this.name;
-      var body = this.body.norm(dref, context.extend([this.name, null, new Var(0)]));
-      return new Cpy(name, copy, body);
-    }
-  }
-
-  erase() {
-    return new Context().subst(this.body, this.copy).erase();
-  }
-
-  check(context = new Context(), eras = false) {
-    var copy_t = this.copy.check(context, eras);
-    if (!(copy_t instanceof Box)) {
-      throw "Copy of unboxed value: `" + this.copy.to_string(context) + "`.";
-    } else if (!eras && !this.body.stratified(0, -1)) {
-      throw "[ERROR]\nNon-stratified duplication on: `" + this.to_string(context) + "`."
-          + "\nUses of variable '" + this.name + "' must have exactly 1 enclosing box.";
-    } else {
-      var body_c = context.extend([this.name, copy_t.term.shift(0, 1), new Var(0)]);
-      var body_t = this.body.check(body_c, eras);
-      return context.subst(body_t, new Cpy(this.name, this.copy, new Var(0)));
-    }
-  }
-}
-
-// Self (type)
-class Slf {
-  constructor(name, body) {
-    this.name = name;
-    this.body = body;
-  }
-
-  to_string(context = new Context()) {
-    return "@" + this.name + " " + this.body.to_string(context.extend([this.name, null, null]));
-  }
-
-  shift(depth, inc) {
-    return new Slf(this.name, this.body.shift(depth + 1, inc));
-  }
-
-  uses(depth) {
-    return 0;
-  }
-
-  stratified(depth, level) {
-    return true;
-  }
-
-  subst(context = new Context()) {
-    return new Slf(this.name, this.body.subst(context.extend([this.name, null, new Var(0)])));
-  }
-
-  head(dref) {
-    return this;
-  }
-
-  erase() {
-    return new Slf(this.name, this.body.erase());
-  }
-
-  norm(dref, context = new Context()) {
-    return new Slf(this.name, this.body.norm(dref, context.extend([this.name, null, new Var(0)])));
-  }
-
-  check(context = new Context(), eras = false) {
-    var body_c = context.extend([this.name, this.shift(0, 1), new Var(0)]);
-    return this.body.check(body_c, true);
-  }
-}
-
-// Self (value)
-class New {
-  constructor(type, term) {
-    this.type = type;
-    this.term = term;
-  }
-
-  to_string(context = new Context()) {
-    return "$" + this.type.to_string(context) + " " + this.term.to_string(context);
-  }
-
-  shift(depth, inc) {
-    return new New(this.type.shift(depth, inc), this.term.shift(depth, inc));
-  }
-
-  uses(depth) {
-    return this.term.uses(depth);
-  }
-
-  stratified(depth, level) {
-    return this.term.stratified(depth, level);
-  }
-
-  subst(context = new Context()) {
-    return new New(this.type.subst(context), this.term.subst(context));
-  }
-
-  head(dref) {
-    return this.term.head(dref);
-  }
-
-  norm(dref, context = new Context()) {
-    return this.term.norm(dref, context);
-  }
-
-  erase() {
-    return this.term.erase();
-  }
-
-  check(context = new Context(), eras = false) {
-    var type_h = this.type.subst(context).head(true);
-    if (!(type_h instanceof Slf)) {
-      throw "[ERROR]\nNot a self type on: " + this.to_string(context);
-    }
-    var term_t = this.term.check(context, eras);
-    context.check_match(context.subst(type_h.body, this.term), term_t, () => "instantiation `" + this.to_string(context) + "`");
-    return this.type;
-  }
-}
-
-// Self (elim)
-class Use {
-  constructor(term) {
-    this.term = term;
-  }
-
-  to_string(context = new Context()) {
-    return "~ " + this.term.to_string(context);
-  }
-
-  shift(depth, inc) {
-    return new Use(this.term.shift(depth, inc));
-  }
-
-  uses(depth) {
-    return this.term.uses(depth);
-  }
-
-  stratified(depth, level) {
-    return this.term.stratified(depth, level);
-  }
-
-  subst(context = new Context()) {
-    return new Use(this.term.subst(context));
-  }
-
-  head(dref) {
-    return this.term.head(dref);
-  }
-
-  norm(dref, context = new Context()) {
-    return this.term.norm(dref, context);
-  }
-
-  erase() {
-    return this.term.erase();
-  }
-
-  check(context = new Context(), eras = false) {
-    var term_t = this.term.check(context, eras).head(true);
-    if (!(term_t instanceof Slf)) {
-      throw "[ERROR]\nNot a self-typed term on: " + this.to_string(context);
-    }
-    return context.subst(term_t.body, this.term);
-  }
-}
-
-// Gives a local name to a term. Useful for context inspection.
-class Let {
-  constructor(name, term, body) {
-    this.name = name; // String
-    this.term = term; // Term
-    this.body = body; // Term
-  }
-
-  to_string(context = new Context()) {
-    var name = this.name;
-    var term = this.term.to_string(context);
-    var body = this.body.to_string(context.extend([this.name, null, null]));
-    return "let " + name + " " + term + " " + body;
-  }
-
-  shift(depth, inc) {
-    var name = this.name;
-    var term = this.term.shift(depth, inc);
-    var body = this.body.shift(depth + 1, inc);
-    return new Let(name, term, body);
-  }
-
-  uses(depth) {
-    return this.term.uses(depth) + this.body.uses(depth + 1);
-  }
-
-  stratified(depth, level) {
-    return this.term.stratified(depth, level) && this.body.stratified(depth + 1, level);
-  }
-
-  subst(context = new Context()) {
-    var name = this.name;
-    var term = this.term.subst(context);
-    var body = this.body.subst(context.extend([this.name, null, new Var(0)]));
-    return new Let(name, term, body);
-  }
-
-  head(dref) {
-    return new Context().subst(this.body, this.term).head(dref);
-  }
-
-  norm(dref, context = new Context()) {
-    return context.subst(this.body, this.term).norm(dref, context);
-  }
-
-  erase() {
-    return new Context().subst(this.body, this.term).erase();
-  }
-
-  check(context = new Context(), eras = false) {
-    var term_t = this.term.check(context, eras);
-    var body_c = context.extend([this.name, term_t.shift(0, 1), this.term.shift(0, 1)]);
-    return context.subst(this.body.check(body_c, eras), this.term);
-  }
-}
-
-// A reference to a closed term. Used to preserve names and cache types.
-class Ref {
-  constructor(name, term, type, eras = false) {
-    this.name = name; // String
-    this.term = term; // Term
-    this.type = type; // Maybe Term
-    this.eras = eras; // Bool
-  }
-
-  to_string(context = new Context()) {
-    return this.name;
-  }
-
-  shift(depth, inc) {
-    return this;
-  }
-
-  uses(depth) {
-    return 0;
-  }
-
-  stratified(depth, level) {
-    return true;
-  }
-
-  subst(context = new Context()) {
-    return this;
-  }
-
-  head(dref) {
-    var term = dref ? this.term.head(dref) : this;
-    return this.eras ? term.erase() : term;
-  }
-
-  norm(dref, context = new Context()) {
-    var term = dref ? this.term.norm(dref, context) : this;
-    return this.eras ? term.erase() : term;
-  }
-
-  erase() {
-    return new Ref(this.name, this.term, this.type, true);
-  }
-
-  check(context = new Context(), eras = false) {
-    if (!this.type) {
-      this.type = this.term.check(context, eras);
-    }
-    return this.type;
-  }
-}
-
-// A type annotation.
-class Ann {
-  constructor(type, term) {
-    this.type = type; // Term
-    this.term = term; // Term
-    this.loop = false;
-  }
-
-  to_string(context = new Context()) {
-    return ": " + this.type.to_string(context) + " = " + this.term.to_string(context);
-  }
-
-  shift(depth, inc) {
-    return new Ann(this.term.shift(depth, inc), this.type.shift(depth, inc));
-  }
-
-  uses(depth) {
-    return this.term.uses(depth);
-  }
-
-  stratified(depth, level) {
-    return this.term.stratified(depth, level);
-  }
-
-  subst(context = new Context()) {
-    return this.term.subst(context);
-  }
-
-  head(dref) {
-    return this.term.head(dref);
-  }
-
-  norm(dref, context = new Context()) {
-    return this.term.norm(dref, context);
-  }
-
-  erase() {
-    return this.term.erase();
-  }
-
-  check(context = new Context(), eras = false) {
-    if (this.loop && this.term.norm(true, context)) {
-      return this.type;
-    } else {
-      this.loop = true;
-      var type = this.term.check(context, eras);
-      if (!equals(this.type, type)) {
-        throw context.show_mismatch(this.type, type, () => "annotated value: `" + this.term.to_string(context) + "`");
+// Converts a term to a string
+const show = ([ctor, args], ctx = Ctx()) => {
+  switch (ctor) {
+    case "Var":
+      return get_name(ctx, args.index) || "#" + args.index;
+    case "Typ":
+      return "Type";
+    case "All":
+      var eras = args.eras ? "-" : "";
+      var name = args.name;
+      var bind = show(args.bind, extend(ctx, [args.name, null, null]));
+      var body = show(args.body, extend(ctx, [args.name, null, null]));
+      return "{" + eras + name + " : " + bind + "} " + body;
+    case "Lam":
+      var eras = args.eras ? "-" : "";
+      var name = args.name;
+      var bind = args.bind && show(args.bind, extend(ctx, [name, null, null]));
+      var body = show(args.body, extend(ctx, [name, null, null]));
+      return bind ? "[" + eras + name + " : " + bind + "] " + body : "[" + name + "] " + body;
+    case "App":
+      var text = ")";
+      var term = [ctor, args];
+      while (term[0] === "App") {
+        text = " " + (term[1].eras ? "-" : "") + show(term[1].argm, ctx) + text;
+        term = term[1].func;
       }
-      return this.type;
-    }
+      return "(" + show(term, ctx) + text;
+    case "Let":
+      var name = args.name;
+      var term = show(args.term, ctx);
+      var body = show(args.body, extend(ctx, [args.name, null, null]));
+      return "let " + name + " " + term + " " + body;
+    case "Ref":
+      return args.name;
   }
 }
 
-// A hole. Used to force a type error and internally for undefined references.
-class Nil {
-  constructor(term) {
-    this.term = term;
-  }
-
-  to_string(context = new Context()) {
-    return this.term ? this.term.to_string(context) : "*";
-  }
-
-  shift(depth, inc) {
-    return this.term ? this.term.shift(depth, inc) : this;
-  }
-
-  uses(depth) {
-    return this.term ? this.term.uses(depth) : 0;
-  }
-
-  stratified(depth, level) {
-    return this.term ? this.term.stratified(depth, level) : true;
-  }
-
-  subst(context = new Context()) {
-    return this.term ? this.term.subst(context) : this;
-  }
-
-  head(dref) {
-    return this.term ? this.term.head(dref) : this;
-  }
-
-  norm(dref, context = new Context()) {
-    return this.term ? this.term.norm(dref, context) : this;
-  }
-
-  erase() {
-    return this.term ? this.term.erase() : this;
-  }
-
-  check(context = new Context(), eras = false) {
-    if (this.term) {
-      return this.term.check(context, eras);
-    } else {
-      throw "[ERROR]\nHole found.\n\n[CONTEXT]\n" + context.show();
-    }
-  }
-}
-
-// Checks if two terms are equal.
-function equals(a, b) {
-  // Checks if both terms are already identical
-  var a = a.head(false);
-  var b = b.head(false);
-  if ( a instanceof Ref && b instanceof Ref && a.name === b.name
-    || a instanceof App && b instanceof App && equals(a.func, b.func, true) && equals(a.argm, b.argm, true)
-    || a instanceof Cpy && b instanceof Cpy && equals(a.copy, b.copy, true) && equals(a.body, b.body, true)) {
-    return true;
-  }
-  // Otherwise, reduces to weak head normal form are equal and recurse
-  var a = a.head(true);
-  var b = b.head(true);
-  if (a instanceof Typ && b instanceof Typ) {
-    return true;
-  } else if (a instanceof All && b instanceof All) {
-    var eras = a.eras === b.eras;
-    var bind = equals(a.bind, b.bind);
-    var body = equals(a.body, b.body);
-    return eras && bind && body;
-  } else if (a instanceof Lam && b instanceof Lam) {
-    var body = equals(a.body, b.body);
-    return body;
-  } else if (a instanceof App && b instanceof App) {
-    var func = equals(a.func, b.func);
-    var argm = equals(a.argm, b.argm);
-    return func && argm;
-  } else if (a instanceof Var && b instanceof Var) {
-    return a.index === b.index;
-  } else if (a instanceof Slf && b instanceof Slf) {
-    var body = equals(a.body, b.body);
-    return body;
-  } else if (a instanceof Put && b instanceof Put) {
-    var term = equals(a.term, b.term);
-    return term;
-  } else if (a instanceof Box && b instanceof Box) {
-    var term = equals(a.term, b.term);
-    return term;
-  } else if (a instanceof Cpy && b instanceof Cpy) {
-    var copy = equals(a.copy, b.copy);
-    var body = equals(a.body, b.body);
-    return copy && body;
-  }
-  return false;
-}
-
-// Converts a string to a term.
-function parse(code) {
-  var index = 0;
-  var unbound_refs = [];
-
+// Converts a string to a term
+const parse = (code) => {
   function is_space(char) {
     return char === " " || char === "\t" || char === "\n";
   }
@@ -1065,22 +182,22 @@ function parse(code) {
     return name;
   }
 
-  function parse_term(context) {
+  function parse_term(ctx) {
     // Comment
     if (match("--")) {
       while (index < code.length && code[index] !== "\n") {
         index += 1;
       }
-      return parse_term(context);
+      return parse_term(ctx);
     }
 
     // Application
     else if (match("(")) {
-      var func = parse_term(context);
+      var func = parse_term(ctx);
       while (index < code.length && !match(")")) {
         var eras = match("-");
-        var argm = parse_term(context);
-        var func = new App(eras, func, argm);
+        var argm = parse_term(ctx);
+        var func = App(eras, func, argm);
         skip_spaces();
       }
       return func;
@@ -1088,7 +205,7 @@ function parse(code) {
 
     // Type
     else if (match("Type")) {
-      return new Typ();
+      return Typ();
     }
 
     // Forall
@@ -1096,117 +213,46 @@ function parse(code) {
       var eras = match("-");
       var name = parse_name();
       var skip = parse_exact(":");
-      var bind = parse_term(context);
+      var bind = parse_term(extend(ctx, [name, null, Var(0)]));
       var skip = parse_exact("}");
-      var body = parse_term(context.extend([name, null, new Var(0)]));
-      return new All(eras, name, bind, body);
+      var body = parse_term(extend(ctx, [name, null, Var(0)]));
+      return All(eras, name, bind, body);
     }
 
-    // Lambda / copy
+    // Lambda
     else if (match("[")) {
       var eras = match("-");
       var name = parse_name();
-      var copy = match("=") ? parse_term(context) : null;
-      var bind = match(":") ? parse_term(context) : null;
+      var bind = match(":") ? parse_term(extend(ctx, [name, null, Var(0)])) : null;
       var skip = parse_exact("]");
-      var body = parse_term(context.extend([name, null, new Var(0)]));
-      if (copy) {
-        return new Cpy(name, copy, body);
-      } else {
-        return new Lam(eras, name, bind, body);
-      }
+      var body = parse_term(extend(ctx, [name, null, Var(0)]));
+      return Lam(eras, name, bind, body);
     }
 
-    // Slf
-    else if (match("@")) {
-      var name = parse_name(context);
-      var body = parse_term(context.extend([name, null, new Var(0)]));
-      return new Slf(name, body);
-    }
-
-    // New
-    else if (match("$")) {
-      var type = parse_term(context);
-      var term = parse_term(context);
-      return new New(type, term);
-    }
-
-    // Use
-    else if (match("~")) {
-      var term = parse_term(context);
-      return new Use(term);
-    }
-
-    // Put
-    else if (match("|")) {
-      var term = parse_term(context);
-      return new Put(term);
-    }
-
-    // Box
-    else if (match("!")) {
-      var term = parse_term(context);
-      return new Box(term);
-    }
-
-    // Definition
-    else if (match("def")) {
-      var name = parse_name();
-      var term = parse_term(context);
-      var tref = new Ref(name, term, type)
-      var body = parse_term(context.extend([name, null, tref.shift(0, 1)]));
-      for (var i = 0; i < (unbound_refs[name] || []).length; ++i) {
-        unbound_refs[name][i].term = tref;
-      }
-      delete unbound_refs[name];
-      return body.shift(0, -1);
-    }
-
-    // Local definition
+    // Let
     else if (match("let")) {
       var name = parse_name();
-      var term = parse_term(context);
-      var body = parse_term(context.extend([name, null, new Var(0)]));
-      return new Let(name, term, body);
+      var term = parse_term(ctx);
+      var body = parse_term(extend(ctx, [name, null, Var(0)]));
+      return Let(name, term, body);
     }
 
-    // Annotation
-    else if (match(":")) {
-      var type = parse_term(context);
-      var skip = parse_exact("=");
-      var term = parse_term(context);
-      return new Ann(type, term);
-    }
-
-    // Hole
-    else if (match("*")) {
-      return new Nil(null);
-    }
-
-    // Variable (named)
+    // Variable / Reference
     else {
       var name = parse_name();
       var skip = 0;
       while (match("'")) {
         skip += 1;
       }
-      var bind = context.find_by_name(name, skip);
-      if (bind) {
-        return bind[2];
+      var var_index = index_of(ctx, name, skip);
+      if (var_index === null) {
+        return Ref(name, false);
       } else {
-        var term = new Nil(null);
-        if (!unbound_refs[name]) {
-          unbound_refs[name] = [];
-        }
-        unbound_refs[name].push(term);
-        return term;
+        return get_bind(ctx, var_index)[2];
       }
     }
   }
 
-<<<<<<< Updated upstream
-  var term = parse_term(new Context());
-=======
   var index = 0;
   var defs = {};
   while (index < code.length) {
@@ -1271,6 +317,7 @@ const subst = ([ctor, term], val, depth) => {
     case "Lam":
       var eras = term.eras;
       var name = term.name;
+      var bind = term.bind && subst(term.bind, val && shift(val, 1, 0), depth + 1);
       var body =              subst(term.body, val && shift(val, 1, 0), depth + 1);
       return Lam(eras, name, bind, body);
     case "App":
@@ -1322,16 +369,39 @@ const equals = (a, b, defs) => {
   }
   return false;
 }
->>>>>>> Stashed changes
 
-  var unbound_names = Object.keys(unbound_refs);
-  if (unbound_names.length > 0) {
-    throw "Use of undefined variables: " + unbound_names.join(", ") + ".\n";
+// Norm
+const norm = ([ctor, term], defs, full) => {
+  const cont = full ? norm : (x => x);
+  const apply = (eras, func, argm) => {
+    var func = norm(func, defs, full);
+    if (func[0] === "Lam") {
+      return norm(subst(func[1].body, argm, 0), defs, full);
+    } else {
+      return App(eras, func, eras ? argm : cont(argm, defs, full));
+    }
   }
+  const dereference = (name, eras) => {
+    if (defs[name]) {
+      var term = norm(defs[name].term, defs, full);
+      var term = eras ? erase(term) : term;
+      //console.log("deref", name, JSON.stringify(term));
+      return term;
+    } else {
+      return Ref(name, eras);
+    }
+  }
+  switch (ctor) {
+    case "Var": return Var(term.index);
+    case "Typ": return Typ();
+    case "All": return All(term.eras, term.name, term.bind, cont(term.body, defs, full));
+    case "Lam": return Lam(term.eras, term.name, term.bind, cont(term.body, defs, full)); 
+    case "App": return apply(term.eras, term.func, term.argm);
+    case "Let": return norm(subst(term.body, term.term, 0), defs, full);
+    case "Ref": return dereference(term.name, term.eras);
+  }
+}
 
-<<<<<<< Updated upstream
-  return term;
-=======
 // Check
 const check = (term, defs, ctx = Ctx()) => {
   switch (term[0]) {
@@ -1365,7 +435,7 @@ const check = (term, defs, ctx = Ctx()) => {
         throw "[ERROR]\nMismatched erasure on " + show(term, ctx) + ".";
       }
       var bind_t = subst(func_t[1].bind, term[1].argm, 0);
-
+      check_match(ctx, defs, bind_t, argm_t, () => "application: `" + show(term, ctx) + "`");
       return subst(func_t[1].body, term[1].argm, 0);
     case "Let":
       var term_t = check(term[1].term, defs, ctx);
@@ -1389,7 +459,28 @@ const check = (term, defs, ctx = Ctx()) => {
     case "Var":
       return get_type(ctx, term[1].index);
   }
->>>>>>> Stashed changes
 }
 
-module.exports = {Context, Var, Typ, All, Lam, App, Put, Box, Cpy, Slf, New, Use, Let, Ref, Ann, Nil, equals, parse};
+module.exports = {
+  Ctx,
+  extend,
+  get_bind,
+  get_name,
+  get_type,
+  get_term,
+  index_of,
+  show_context,
+  show_mismatch,
+  check_match,
+  Var,
+  Typ,
+  All,
+  Lam,
+  App,
+  Let,
+  Ref,
+  show,
+  parse,
+  norm,
+  check
+};
