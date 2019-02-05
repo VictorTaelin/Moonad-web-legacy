@@ -6,13 +6,16 @@ const PORT = parseInt(process.argv[2]);
 const HOST = 'localhost';
 const REMOTE = parseInt(process.argv[3]);
 
+var difficulty = 0;
+
 // -------------- TEST FUNCTIONS ---------------- \\
 function empty_block(prev_hash, extra) {
+    difficulty++;
     return new eth.Block(
         localTime().toString(),
         "0000000000000000",
         extra || "00000000000000000000000000000000",
-        "0000000000000000000000000000000000000000000000000000000000000000",
+        difficulty,
         prev_hash || "0000000000000000000000000000000000000000000000000000000000000000",
         eth.hash([]),
         []);
