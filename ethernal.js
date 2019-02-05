@@ -73,6 +73,7 @@ class Block {
 class Blockchain {
     constructor(){
         this.blocks = {};
+        this.tips = [];
     };
 
     add(block) {
@@ -80,6 +81,13 @@ class Blockchain {
             throw "Attempted to add invalid block."
         }
         this.blocks[block.hash()] = block;
+
+        // update this.tips array
+        this.tips.forEach(function(item, index) {
+            // check for hash
+            // delete old tip
+        });
+        // add new block on this.tips
     };
 
     block_pow(block_hash) {
