@@ -37,8 +37,8 @@ function empty_block(extra, prev_hash) {
         "0000000000000000",
         "0000000000000000",
         extra || "00000000000000000000000000000000",
-        "0000000000000000000000000000000000000000000000000000000000000000",
-        prev_hash || "0000000000000000000000000000000000000000000000000000000000000000",
+        empty_hash,
+        prev_hash || empty_hash,
         hash([]),
         []);
 }
@@ -110,13 +110,42 @@ class Block {
 class Blockchain {
     constructor(){
         this.blocks = {};
+        this.tips = [];
     };
 
     add(block) {
         if (!block.is_valid()) {
             throw "Attempted to add invalid block."
         }
-        this.blocks[block.hash()] = block;
+        var blk_hash = block.hash();
+        this.blocks[blk_hash] = block;
+        this.tips.push(blk_hash);
+
+        // update tips array
+        this.tips.forEach(function(hash, index) {
+            if (hash === block.prev_hash) {
+                // delete old tip
+                this.tips.splice(index, 1);
+            }
+        }.bind(this));
+    };
+
+    // Returns the Accumulated Proof of Work (APoW) from the chosen block or 0
+    // if the block is not found
+    // APoW is determined by adding all difficulties from blocks in a single chain
+    block_acc_pow(block_hash) {
+        var acc = 0;
+
+        if (this.blocks[block_hash]) {
+            var prev_blk_hash, blk = this.blocks[block_hash];
+            while (blk) {
+                acc += blk.difficulty;
+                prev_blk_hash = blk.prev_hash;
+                blk = this.blocks[prev_blk_hash];
+            }
+        }
+
+        return acc;
     };
 
     block_height(block_hash) {
@@ -134,15 +163,15 @@ class Blockchain {
         }
     };
 
-    // Get the block with the highest heigh
+    // Get the block with the highest accumulated proof of work
     get_tip() {
         var tip = empty_hash;
 
-        for (var block_hash in this.blocks) {
-            if (this.block_height(block_hash) > this.block_height(tip)) {
+        this.tips.forEach(function (block_hash, index) {
+            if (this.block_acc_pow(block_hash) > this.block_acc_pow(tip)) {
                 tip = block_hash;
             }
-        }
+        }.bind(this));
 
         return tip;
     };
@@ -375,8 +404,8 @@ class Client {
                 // Another client requested a specific block
                 case getBlkJson.type:
                 var msg = sendBlockJson;
-                msg.block = this.blockchain.blocks[req.hash];
                 msg.hash = req.hash;
+                msg.block = this.blockchain.blocks[msg.hash];
                 var respPeer = new Peer(req.host, req.port, 0);
                 this.sendMsg(JSON.stringify(msg), respPeer);
                 break;
@@ -385,8 +414,8 @@ class Client {
                 // Another client requested blockchain tip
                 case getTipJson.type:
                 var msg = sendBlockJson;
-                msg.block = this.blockchain.blocks[this.blockchain.get_tip()];
                 msg.hash = this.blockchain.get_tip();
+                msg.block = this.blockchain.blocks[msg.hash];
                 var respPeer = new Peer(req.host, req.port, 0);
                 this.sendMsg(JSON.stringify(msg), respPeer);
                 break;
@@ -419,7 +448,7 @@ class Client {
                         this.broadcastBlock(newBlock);
                         console.log("Blockchain len = " + Object.keys(this.blockchain.blocks).length);
                         // if previous block is not on local blockchain copy, request previous block
-                        if(!this.blockchain.blocks[req.block.prev_hash]){
+                        if(!this.blockchain.blocks[req.block.prev_hash]) {
                             var respPeer = new Peer(req.host, req.port, 0);
                             this.getBlock(req.block.prev_hash, respPeer);
                         }
@@ -469,7 +498,7 @@ class Client {
         // 'remote' node even after accepting connections from different nodes.
         setInterval(function() {
             //console.log("getPeers");
-            if (this.peers.length > 0){
+            if (this.peers.length > 0) {
                 var remote = this.randomPeer();
                 this.getPeers(remote);
             }
@@ -489,14 +518,14 @@ class Client {
         }.bind(this),6000);
 
         // newBlock
-        setInterval(function(){
+        setInterval(function() {
             console.log("Discovered new block!");
             // create block
             var blk = new Block(
                 this.localTime(),
                 "0000000000000000",
                 "00000000000000000000000000000000",
-                "0000000000000000000000000000000000000000000000000000000000000000",
+                randomInt(2) + 1,
                 this.blockchain.get_tip(),
                 hash([]),
                 []);
