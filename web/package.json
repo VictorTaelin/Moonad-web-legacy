@@ -1,0 +1,30 @@
+{
+  "name": "moonad",
+  "version": "0.1.0",
+  "description": "A P2P operating system.",
+  "main": "moonad.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "webpack"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moonad/moonad.git"
+  },
+  "keywords": [
+    "moonad"
+  ],
+  "author": "Victor Maia",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/moonad/moonad/issues"
+  },
+  "homepage": "https://github.com/moonad/moonad#readme",
+  "devDependencies": {
+    "webpack": "^4.29.3",
+    "webpack-cli": "^3.2.3"
+  },
+  "dependencies": {
+    "formality-lang": "^0.1.7"
+  }
+}
