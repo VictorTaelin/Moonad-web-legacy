@@ -5,7 +5,7 @@
   "main": "moonad.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "webpack"
+    "build": "cp src/* dist; webpack"
   },
   "repository": {
     "type": "git",
@@ -25,6 +25,7 @@
     "webpack-cli": "^3.2.3"
   },
   "dependencies": {
-    "formality-lang": "^0.1.7"
+    "formality-lang": "^0.1.9",
+    "nano-ipfs-store": "^0.1.3"
   }
 }

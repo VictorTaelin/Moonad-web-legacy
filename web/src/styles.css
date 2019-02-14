@@ -1,0 +1,78 @@
+* {
+  margin: 0px;
+  padding: 0px;
+  box-sizing: border-box;
+  font-family: arial;
+}
+html, body {
+  height: 100%;
+  background-color: #b186b7;
+}
+textarea, select, input, button {
+  outline: none;
+  resize: none;
+}
+#page {
+  height: 100%;
+}
+#top-bar {
+  display: flex;
+  flex-flow: row nowrap;
+  justify-content: space-between;
+  width: 100%;
+  height: 36px;
+  padding: 4px;
+  background-color: #b186b7;
+  border-bottom: 2px solid #806284;
+  color: white;
+}
+#top-bar-buttons {
+  display: flex;
+  flex-flow: row nowrap;
+}
+.top-bar-button {
+  padding: 6px;
+}
+#main {
+  background-color: white;
+  display: flex;
+  flex-flow: row nowrap;
+  height: calc(100% - 36px);
+}
+#code-box {
+  background-color: white;
+  padding: 8px;
+  overflow: scroll;
+}
+#console-box {
+  display: flex;
+  flex-flow: column nowrap;
+  justify-content: space-between;
+  background-color: white;
+  padding: 8px;
+  overflow: scroll;
+}
+#console-log {
+  overflow: scroll;
+  font-size: 16px;
+  font-family: "Courier New";
+}
+#console-input {
+  width: 100%;
+  height: 20px;
+  font-size: 16px;
+  font-family: "Courier New";
+  overflow: scroll;
+  white-space: nowrap;
+}
+#code-editor {
+  width: 100%;
+  height: 100%;
+  border: 0px solid black;
+  overflow: scroll;
+  font-family: "Courier New";
+  font-size: 16px;
+}
+.half-screen {
+  flex: 1;
+}
