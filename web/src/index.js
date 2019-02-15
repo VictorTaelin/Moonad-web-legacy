@@ -201,7 +201,7 @@ window.onload = () => {
     }
   }
 
-  document.onkeypress = (e) => {
+  document.onkeydown = (e) => {
     if (document.activeElement.id !== "code-editor" && !e.metaKey && !e.ctrlKey) {
       var interacted = false;
       for (var i = 0; i < state.apps.length; ++i) {
