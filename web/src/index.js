@@ -1,9 +1,6 @@
 const F = require("formality-lang");
 const I = require("nano-ipfs-store").at("https://ipfs.infura.io:5001"); 
 
-var term = F.parse("main = ([s] [z] (s (s z)) [s] [z] (s (s z)))").main.term;
-var norm = F.norm(term);
-
 var code =
 `s    = [n] [z] [s] (s n)
 z    = [z] [s] z
@@ -23,6 +20,9 @@ Unit.new
 : Unit
 = [P] [new] new
 `;
+
+function light_dapp(term) {
+}
 
 window.onload = () => {
   var console_input = document.getElementById("console-input");
@@ -97,14 +97,14 @@ window.onload = () => {
           log("check <term>");
           log("- checks the type of a term");
           log("");
-          log("clear");
-          log("- clears the console");
-          log("");
           log("save");
           log("- saves the program on IPFS");
           log("");
-          log("load");
+          log("load <hash>");
           log("- loads a program from IPFS");
+          log("");
+          log("clear");
+          log("- clears the console");
           log("");
           break;
         case "save":
