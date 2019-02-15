@@ -21,11 +21,12 @@
   },
   "homepage": "https://github.com/moonad/moonad#readme",
   "devDependencies": {
+    "raw-loader": "^1.0.0",
     "webpack": "^4.29.3",
     "webpack-cli": "^3.2.3"
   },
   "dependencies": {
-    "formality-lang": "^0.1.9",
+    "formality-lang": "^0.1.12",
     "nano-ipfs-store": "^0.1.3"
   }
 }
