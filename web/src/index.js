@@ -70,6 +70,10 @@ window.onload = () => {
     console_log.scrollTop = console_log.scrollHeight;
   }
 
+  function get_expr(expr) {
+    return F.parse("tmp_expr = " + "(" + (expr || "main") + ")").tmp_expr.term;
+  }
+
   function execute(command) {
     var split_index = command.indexOf(" ");
     var split_index = split_index === -1 ? command.length : split_index;
@@ -85,16 +89,10 @@ window.onload = () => {
     }
     try {
       switch (action) {
-        case "eval":
-        case "e":
-          log("Evaluating `" + argument + "`:", true);
-          log(F.show(F.norm(F.parse("main = " + argument).main.term, defs)));
-          log("");
-          break;
         case "check":
         case "c":
           log("Checking `" + argument + "`:", true);
-          log(F.show(F.infer(F.parse("main = " + argument).main.term, defs)));
+          log(F.show(F.infer(get_expr(argument), defs)));
           log("");
           break;
         case "clear":
@@ -186,18 +184,34 @@ window.onload = () => {
           log(app);
 
           break;
-        default:
-          log("Unknown command.", true);
+        case "eval":
+        case "e":
+          log("Evaluating `" + argument + "`:", true);
+          try {
+            var norm = F.norm(get_expr(argument), defs, true);
+            log(F.show(F.erase(norm)));
+          } catch (e) {
+            try {
+              var norm = F.norm(get_expr(argument), defs, false);
+              log("Possibly infinite term. Weak head normal form:");
+              log(F.show(F.erase(norm)));
+            } catch (e) {
+              log("Possibly infinite term. No weak head normal form found.");
+            }
+          }
           log("");
+          break;
+        default:
+          execute("eval " + command);
           break;
       }
     } catch (e) {
-      console.log(e);
-      var lines = e.split("\n");
-      for (var i = 0; i < lines.length; ++i) {
-        log(lines[i]);
+      if (typeof e === "String") {
+        e.split("\n").forEach(log);
+      } else {
+        e.toString().split("\n").forEach(log);
       }
-      return;
+      log("");
     }
   }
 
