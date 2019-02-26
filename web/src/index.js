@@ -45,6 +45,8 @@ function install(main) {
     main.style.fontSize = 14 + "px";
     main.style.overflowX = "hidden";
     main.style.overflowY = "auto";
+    main.appendChild(Line("> " + state.inpt));
+    main.appendChild(Line(""));
     for (var i = 0; i < state.logs.length; ++i) {
       if (typeof state.logs[i].value === "string") {
         var line = Line(state.logs[i].value || ".");
@@ -57,8 +59,6 @@ function install(main) {
         main.appendChild(state.logs[i].value);
       }
     }
-    main.appendChild(Line("> " + state.inpt));
-    main.scrollTop = main.scrollHeight;
   }
 
   function get_expr(expr) {
@@ -76,22 +76,23 @@ function install(main) {
     var split_index = split_index === -1 ? command.length : split_index;
     var action = command.slice(0, split_index);
     var argument = command.slice(split_index + 1);
+    state.logs = [];
     switch (action) {
       case "help":
         log("Available commands:", true);
-        log("clear       : clears the console");
         log("list <str>  : lists available terms matching <str>");
         log("view <name> : views a term");
         log("type <expr> : type-checks an expression");
         log("eval <expr> : evaluates an expression");
         log("exec <name> : executes an IO term (try: `exec greeter`)");
-        log("load <hash> : loads code from IPFS");
-        log("save <name> : saves a term to IPFS");
+        log("2evm <name> : compiles a Formality contract to EVM (TODO)");
+        log("ipfs-load   : loads code from IPFS");
+        log("ipfs-save   : saves a term to IPFS");
+        log("eth-rpc     : (TODO)");
+        log("eth-sign    : (TODO)");
+        log("eth-deploy  : (TODO)");
+        log("keccak256   : (TODO)");
         log("");
-        break;
-      case "clear":
-        state.logs = [];
-        state.apps = [];
         break;
       case "list":
         log("Listing terms that match `" + argument + "`:", true);
@@ -128,6 +129,7 @@ function install(main) {
         }
         break;
       case "exec":
+      case "play":
         try {
           var expr = get_expr(argument);
           log("Executing `" + argument + "`.", true);
@@ -140,14 +142,18 @@ function install(main) {
           }
           FI.run_IO_with(expr, state.defs, {
             GET_LINE: (arg) => new Promise((res) => {
-              var answer = window.prompt(arg);
-              log(arg);
-              log("> " + answer);
-              res(answer);
+              setTimeout(() => {
+                var answer = window.prompt(arg);
+                res(answer);
+                render();
+              }, 0);
             }),
             PUT_LINE: (arg) => new Promise((res) => {
-              log(arg);
-              res("");
+              setTimeout(() => {
+                log(arg);
+                res("");
+                render();
+              });
             })
           }).then(() => {
             log("");
@@ -174,10 +180,10 @@ function install(main) {
         }
         log("");
         break;
-      case "save":
+      case "ipfs-save":
         log("Saving to IPFS disabled temporarily.", true);
         break;
-      case "load":
+      case "ipfs-load":
         log("Loading term.", true);
         var code = window.prompt("IPFS temporarily disabled. Enter code manually:");
         var defs = FL.parse(FS.desugar(code));
