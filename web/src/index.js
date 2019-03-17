@@ -105,14 +105,11 @@ function install(main) {
         log("");
         break;
       case "view":
-        log("Definition of `" + argument + "`:", true);
+        log(argument, true);
         if (state.defs[argument]) {
           var def = state.defs[argument];
-          def.comm.split("\n").slice(0,-1).forEach(line => log("|" + line));
-          if (def.type) {
-            log(": " + FL.show(def.type));
-          }
-          log("= " + FL.show(def.term));
+          console.log(def);
+          def.code.split("\n").slice(1,-1).forEach(line => log(line));
           log("");
         } else {
           log("Not found.");
